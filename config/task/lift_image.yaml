@@ -1,0 +1,35 @@
+name: lift_image
+
+obs_dim: 6 # block pos + gripper pos 
+action_dim: 4 # (x,y,z,gripper)
+keypoint_dim: 3
+num_keypoints: 1
+
+env_runner:
+  _target_: fvf.env_runner.robosuite_lowdim_runner.RobosuiteLowdimRunner
+  env: "LiftEnv"
+  num_train: 10
+  num_train_vis: 2
+  train_start_seed: 0
+  num_test: 50
+  num_test_vis: 8
+  test_start_seed: 100000
+  max_steps: 200
+  num_obs_steps: ${num_obs_steps}
+  num_action_steps: ${num_action_steps}
+  fps: 10
+  past_action: ${past_action_visible}
+  num_envs: 10
+  observable_objects: ["cube"]
+
+dataset:
+  _target_: fvf.dataset.robosuite_image_dataset.RobosuiteImageDataset
+  path: data/lift_50
+  horizon: ${horizon}
+  pad_before: ${eval:'${num_obs_steps}-1+${num_latency_steps}'}
+  pad_after: ${eval:'${num_action_steps}-1'}
+  seed: 0
+  num_keypoints: ${task.num_keypoints}
+  action_coords: ${action_coords}
+  val_ratio: 0.02
+  max_train_episodes: 45
