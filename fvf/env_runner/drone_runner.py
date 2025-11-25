@@ -385,9 +385,9 @@ class DroneRunner(BaseRunner):
                     try:
                         sim_video = wandb.Video(video_path)
                         log_data[prefix + f"sim_video_{seed}"] = sim_video
-                        print(f"[VIDEO] ✅ Logged to WandB: {prefix}sim_video_{seed}")
+                        print(f"[VIDEO] Logged to WandB: {prefix}sim_video_{seed}")
                     except Exception as e:
-                        print(f"[VIDEO] ⚠️ Failed to log to WandB: {e}")
+                        print(f"[VIDEO] Failed to log to WandB: {e}")
 
         # Log aggregate metrics
         for prefix, v in max_rewards.items():
