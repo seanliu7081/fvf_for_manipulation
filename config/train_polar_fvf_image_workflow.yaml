@@ -25,6 +25,7 @@ action_coords: "polar"
 
 policy:
   _target_: fvf.policy.polar_implicit_policy.PolarImplicitPolicy
+  # _target_: fvf.policy.polar_implicit_policy_ce.PolarImplicitPolicyCE
   obs_dim: ${obs_dim}
   action_dim: ${action_dim}
   num_obs_steps: ${num_obs_steps}

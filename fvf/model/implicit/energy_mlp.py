@@ -2,6 +2,7 @@
 
 import torch
 from torch import nn
+import numpy as np
 
 from escnn import gspaces
 from escnn import nn as enn
@@ -17,6 +18,7 @@ from eharmony.spherical_harmonics import SphericalHarmonics
 from eharmony.cylindrical_harmonics import CylindricalHarmonics
 from eharmony.so3_harmonics import SO3Harmonics
 
+from eharmony.spherical_bessel_harmonics import SphericalBesselHarmonics
 
 class EnergyMLP(nn.Module):
     """Vanilla IBC energy head."""
@@ -179,9 +181,19 @@ class SphereEnergyMLP(nn.Module):
             act_flat = actions.view(B * N, -1)
             # w_a = w.repeat(1, N, 1, 1).view(B * N, self.num_radii, -1)
             # w_r = w_a[torch.arange(B * N), act_flat[:, 0].int()].reshape(B * N, -1)
-            out = self.sh(w, act_flat[:, 1:]).view(B, N)
+            # w_reshaped = w.reshape(B * N, self.num_radii, -1) 
+            # out = self.sh(w, act_flat[:, 1:]).view(B, N)
+            print(f"DEBUG: w.shape={w.shape}, act_flat.shape={act_flat.shape}")
+            print(f"DEBUG: self.sh expecting n={(self.sh.L + 1)**2 if hasattr(self.sh, 'L') else 'unknown'}")
+            out = self.sh(w.unsqueeze(1), act_flat[:, 1:]).view(B, N)  # w: (B*N, features) -> (B*N, 1, features)
+        # else:
+        #     w_reshaped = w.view(B, N, self.num_radii, -1)
+        #     # out = self.sh(w.reshape(B * self.num_radii, -1))
+        #     out = self.sh(w_reshaped.reshape(B * N, self.num_radii, -1))
+        #     out = out.reshape(B, N, self.sh.num_theta, self.sh.num_phi)
         else:
-            out = self.sh(w.reshape(B * self.num_radii, -1))
+            w_3d = w.unsqueeze(1)
+            out = self.sh(w_3d)
             out = out.reshape(B, N, self.sh.num_theta, self.sh.num_phi)
 
         if return_coeffs:
@@ -860,3 +872,81 @@ class SO3CylindricalEnergyMLP(nn.Module):
 
         gripper_pred = torch.sigmoid(self.gripper_mlp(s).tensor)
         return pos_energy, rot_energy, gripper_pred
+    
+class SphericalBesselEnergyMLP(torch.nn.Module):
+    """
+    Energy head using Spherical Bessel Harmonics (toy-matching version).
+    """
+    
+    def __init__(
+        self,
+        obs_feat_dim: int,
+        mlp_dim: int,
+        num_layers: int,
+        dropout: float,
+        spec_norm: bool,
+        n_max: int = 2,
+        l_max: int = 3,
+        n_k: int = 3,
+        R_max: float = 1.0,
+        num_theta: int = 20,
+        initialize: bool = True,
+    ):
+        super().__init__()
+        
+        from fvf.model.modules.layers import MLP
+        
+        self.n_max = n_max
+        self.l_max = l_max
+        self.n_k = n_k
+        self.num_radii = n_k
+        self.R_max = R_max
+        
+        self.sbh = SphericalBesselHarmonics(
+            n_max=n_max,
+            l_max=l_max,
+            n_k=n_k,
+            R_max=R_max,
+            num_theta=num_theta,
+            grid_type="lie_learn"
+        )
+        
+        self.sh = self.sbh
+        
+        # MLP: obs -> basis coefficients
+        self.energy_mlp = MLP(
+            [obs_feat_dim] + [mlp_dim] * num_layers + [self.sbh.num_basis],
+            dropout=dropout,
+            act_out=False,
+            spec_norm=spec_norm,
+        )
+        
+        print(f"SphericalBesselEnergyMLP (toy-matching):")
+        print(f"  MLP output: {self.sbh.num_basis} coefficients")
+    
+    def forward(
+        self,
+        obs_feat: torch.Tensor,
+        actions: torch.Tensor,
+        return_coeffs: bool = False,
+    ):
+        B = obs_feat.shape[0]
+        
+        if actions.dim() == 4:
+            actions = actions.squeeze(2)
+        
+        B, N, D = actions.shape
+
+        coeffs = self.energy_mlp(obs_feat)  # [B, num_basis]
+
+        coeffs_expanded = coeffs.unsqueeze(1).expand(-1, N, -1)
+        coeffs_flat = coeffs_expanded.reshape(B * N, -1)
+
+        actions_flat = actions.reshape(B * N, 3)
+        energy_flat = self.sbh(coeffs_flat, actions_flat)
+        energy = energy_flat.view(B, N)
+        
+        if return_coeffs:
+            return energy, coeffs
+        else:
+            return energy

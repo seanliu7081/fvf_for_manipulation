@@ -13,7 +13,7 @@ from omegaconf import OmegaConf
 import wandb
 
 from fvf.model.implicit.obs_encoder import ObsEncoder, SO2ObsEncoder, SO2ObsEncoder2, ObsEncoder2
-from fvf.model.implicit.energy_mlp import EnergyMLP
+from fvf.model.implicit.energy_mlp import EnergyMLP, PolarEnergyMLP
 from fvf.dataset.base_dataset import BaseDataset
 from fvf.dataset.pusht_image_dataset import PushTImageDatasetAug
 from fvf.workflow.base_workflow import BaseWorkflow
@@ -45,7 +45,8 @@ class ImplicitWorkflow(BaseWorkflow):
         # obs_encoder: SO2ObsEncoder2
         obs_encoder = hydra.utils.instantiate(config.obs_encoder, initialize=(not eval))
 
-        energy_head: EnergyMLP
+        # energy_head: EnergyMLP
+        energy_head: PolarEnergyMLP
         energy_head = hydra.utils.instantiate(config.energy_head, initialize=(not eval))
 
         self.model: ImplicitPolicy
@@ -216,6 +217,7 @@ class ImplicitWorkflow(BaseWorkflow):
                     metric_dict = dict()
                     for k, v in step_log.items():
                         metric_dict[k.replace("/", "_")] = v
+                    print(f"DEBUG: metric_dict={metric_dict}")
                     topk_checkpoint_path = topk_manager.get_ckpt_path(metric_dict)
                     if topk_checkpoint_path is not None:
                         self.save_checkpoint(path=topk_checkpoint_path)

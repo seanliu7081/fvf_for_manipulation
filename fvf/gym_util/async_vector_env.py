@@ -586,14 +586,75 @@ def _worker(index, env_fn, pipe, parent_pipe, shared_memory, error_queue):
     try:
         while True:
             command, data = pipe.recv()
+            # if command == "reset":
+            #     result = env.reset()
+            #     if isinstance(result, tuple):
+            #         observation = result[0]
+            #     else:
+            #         observation = result
+            #     pipe.send((observation, True))
             if command == "reset":
-                observation = env.reset()
+                result = env.reset()
+                # Handle both old gym (returns obs) and new gymnasium (returns obs, info)
+                if isinstance(result, tuple):
+                    observation = result[0]
+                else:
+                    observation = result
                 pipe.send((observation, True))
+            # elif command == "step":
+            #     observation, reward, done, timeout, info = env.step(data)
+            #     # if done:
+            #     #     observation = env.reset()
+            #     pipe.send(((observation, reward, done, timeout, info), True))
+            # elif command == "step":
+            #     result = env.step(data)
+            #     if len(result) == 5:
+            #         observation, reward, done, timeout, info = result
+            #     else:
+            #         observation, reward, done, info = result
+            #         timeout = False
+                
+            #     # Guard against None observations
+            #     if observation is None:
+            #         if hasattr(env, 'observation_space'):
+            #             observation = np.zeros(env.observation_space.shape, dtype=env.observation_space.dtype)
+            #         else:
+            #             raise ValueError("Received None observation")
+                
+            #     pipe.send(((observation, reward, done, timeout, info), True))
             elif command == "step":
-                observation, reward, done, timeout, info = env.step(data)
-                # if done:
-                #     observation = env.reset()
-                pipe.send(((observation, reward, done, timeout, info), True))
+                try:
+                    result = env.step(data)
+                    if len(result) == 5:
+                        observation, reward, done, timeout, info = result
+                    else:
+                        observation, reward, done, info = result
+                        timeout = False
+                    
+                    # Guard against None observations
+                    if observation is None:
+                        print(f"WARNING: Worker received None observation. done={done}, timeout={timeout}")
+                        print(f"WARNING: Action was: {data}")
+                        if hasattr(env, 'observation_space'):
+                            observation = np.zeros(env.observation_space.shape, dtype=env.observation_space.dtype)
+                            print(f"WARNING: Replaced with zeros, shape={observation.shape}")
+                        else:
+                            raise ValueError("Received None observation and env has no observation_space")
+                    
+                    # Double-check observation is not None before sending
+                    if observation is None:
+                        raise ValueError("Observation is still None after guard!")
+                    
+                    # Check if observation has dtype attribute
+                    if not hasattr(observation, 'dtype'):
+                        raise ValueError(f"Observation has no dtype attribute! Type: {type(observation)}, Value: {observation}")
+                    
+                    pipe.send(((observation, reward, done, timeout, info), True))
+                except Exception as e:
+                    print(f"ERROR in worker step: {type(e).__name__}: {e}")
+                    import traceback
+                    traceback.print_exc()
+                    raise
             elif command == "seed":
                 env.seed(data)
                 pipe.send((None, True))
@@ -641,15 +702,38 @@ def _worker_shared_memory(index, env_fn, pipe, parent_pipe, shared_memory, error
         while True:
             command, data = pipe.recv()
             if command == "reset":
-                observation = env.reset()
+                result = env.reset()
+                if isinstance(result, tuple):
+                    observation = result[0]
+                else:
+                    observation = result
                 write_to_shared_memory(
                     index, observation, shared_memory, observation_space
                 )
                 pipe.send((None, True))
+            # elif command == "step":
+            #     observation, reward, done, timeout, info = env.step(data)
+            #     # if done:
+            #     #     observation = env.reset()
+            #     write_to_shared_memory(
+            #         index, observation, shared_memory, observation_space
+            #     )
+            #     pipe.send(((None, reward, done, timeout, info), True))
             elif command == "step":
-                observation, reward, done, timeout, info = env.step(data)
-                # if done:
-                #     observation = env.reset()
+                result = env.step(data)
+                # Handle both old gym (5 values) and potential None observations
+                if len(result) == 5:
+                    observation, reward, done, timeout, info = result
+                else:
+                    # Fallback for old gym API (4 values)
+                    observation, reward, done, info = result
+                    timeout = False
+                
+                # Guard against None observations
+                if observation is None:
+                    # This can happen when episode ends - use a zero observation
+                    observation = np.zeros(observation_space.shape, dtype=observation_space.dtype)
+                
                 write_to_shared_memory(
                     index, observation, shared_memory, observation_space
                 )

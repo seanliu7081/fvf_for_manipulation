@@ -278,6 +278,8 @@ class SO2ResNetBlock(nn.Module):
 
         return out
 
+# ===============================================
+
 class SO2ResNetBlock2(nn.Module):
     def __init__(
         self,

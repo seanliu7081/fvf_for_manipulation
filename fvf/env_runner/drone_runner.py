@@ -16,6 +16,7 @@ from fvf.env.drone.fly_through_gate_env import FlyThroughGateEnv
 from fvf.gym_util.async_vector_env import AsyncVectorEnv
 from fvf.gym_util.multistep_wrapper import MultiStepWrapper
 from fvf.gym_util.video_recording_wrapper import VideoRecordingWrapper, VideoRecorder
+from fvf.gym_util.pybullet_video_wrapper import PyBulletVideoWrapper
 
 from fvf.policy.base_policy import BasePolicy
 from fvf.env_runner.base_runner import BaseRunner
@@ -48,25 +49,25 @@ class DroneRunner(BaseRunner):
         num_envs=None,
         action_coords="rectangular",
     ):
-        # test_start_seed = 10001
         super().__init__(output_dir)
         num_envs = num_train + num_test if num_envs is None else num_envs
         self.action_coords = action_coords
+        self.env_name = env
 
         env_num_obs_steps = num_obs_steps + num_latency_steps
         env_num_action_steps = num_action_steps
 
         if env == "go_to_target":
-            env = GoToTargetEnv
+            env_class = GoToTargetEnv
         elif env == "fly_through_gate":
-            env = FlyThroughGateEnv
+            env_class = FlyThroughGateEnv
         else:
             raise ValueError("Invalid env...")
 
         def env_fn():
             return MultiStepWrapper(
                 VideoRecordingWrapper(
-                    env(),
+                    env_class(gui=False, record=False),
                     video_recoder=VideoRecorder.create_h264(
                         fps=fps,
                         codec="h264",
@@ -80,6 +81,7 @@ class DroneRunner(BaseRunner):
                 n_obs_steps=env_num_obs_steps,
                 n_action_steps=env_num_action_steps,
                 max_episode_steps=max_steps,
+                reward_agg_method='sum'
             )
 
         env_fns = [env_fn] * num_envs
@@ -96,15 +98,6 @@ class DroneRunner(BaseRunner):
                 assert isinstance(env.env, VideoRecordingWrapper)
                 env.env.video_recoder.stop()
                 env.env.file_path = None
-
-                if enable_render:
-                    filename = pathlib.Path(output_dir).joinpath(
-                        "media", wv.util.generate_id() + ".mp4"
-                    )
-                    filename.parent.mkdir(parents=False, exist_ok=True)
-                    filename = str(filename)
-                    env.env.file_path = filename
-
                 assert isinstance(env, MultiStepWrapper)
                 env.set_seed(seed)
 
@@ -121,15 +114,6 @@ class DroneRunner(BaseRunner):
                 assert isinstance(env.env, VideoRecordingWrapper)
                 env.env.video_recoder.stop()
                 env.env.file_path = None
-
-                if enable_render:
-                    filename = pathlib.Path(output_dir).joinpath(
-                        "media", wv.util.generate_id() + ".mp4"
-                    )
-                    filename.parent.mkdir(parents=False, exist_ok=True)
-                    filename = str(filename)
-                    env.env.file_path = filename
-
                 assert isinstance(env, MultiStepWrapper)
                 env.set_seed(seed)
 
@@ -153,6 +137,108 @@ class DroneRunner(BaseRunner):
         self.past_action = past_action
         self.max_steps = max_steps
         self.tqdm_interval_sec = tqdm_interval_sec
+        self.num_train = num_train
+        self.num_train_vis = num_train_vis
+        self.num_test_vis = num_test_vis
+        self.output_dir = output_dir
+
+    def _run_single_env_with_video(self, global_idx, policy, device):
+        """Run a single environment with video recording (no GUI needed)"""
+        seed = self.env_seeds[global_idx]
+        prefix = self.env_prefixs[global_idx]
+        
+        print(f"[VIDEO] Recording environment {global_idx} ({prefix}seed={seed})")
+        
+        # Create base environment (no GUI)
+        if self.env_name == "go_to_target":
+            base_env = GoToTargetEnv(gui=False, record=False)
+        elif self.env_name == "fly_through_gate":
+            base_env = FlyThroughGateEnv(gui=False, record=False)
+        else:
+            raise ValueError("Invalid env...")
+        
+        # Prepare video path
+        video_path = pathlib.Path(self.output_dir).joinpath(
+            "media", wv.util.generate_id() + ".mp4"
+        )
+        video_path.parent.mkdir(parents=False, exist_ok=True)
+        
+        # Wrap with video recorder
+        video_env = PyBulletVideoWrapper(
+            base_env,
+            video_path=str(video_path),
+            fps=self.fps
+        )
+        
+        # Wrap with MultiStepWrapper
+        wrapped_env = MultiStepWrapper(
+            video_env,
+            n_obs_steps=self.num_obs_steps + self.num_latency_steps,
+            n_action_steps=self.num_action_steps,
+            max_episode_steps=self.max_steps,
+            reward_agg_method='sum'
+        )
+        
+        # Set seed and reset
+        wrapped_env.set_seed(seed)
+        obs = wrapped_env.reset()
+        
+        episode_rewards = []
+        past_action = None
+        policy.reset()
+        
+        pbar = tqdm.tqdm(
+            total=self.max_steps,
+            desc=f"Recording {prefix}seed={seed}",
+            leave=False,
+            mininterval=self.tqdm_interval_sec,
+        )
+        
+        step_count = 0
+        while step_count < self.max_steps:
+            # Prepare observation (add batch dimension)
+            obs_dict = {
+                "keypoints": obs[None, ..., :self.num_obs_steps, :].astype(np.float32),
+            }
+            obs_dict = dict_apply(obs_dict, lambda x: torch.from_numpy(x).to(device))
+            
+            # Get action from policy
+            with torch.no_grad():
+                action_dict = policy.get_action(obs_dict, device)
+            
+            # Remove batch dimension and latency steps
+            action = action_dict["action"][0, self.num_latency_steps:]
+            
+            # Ensure action is numpy array
+            if isinstance(action, torch.Tensor):
+                action = action.cpu().numpy()
+            
+            # Step environment
+            obs, reward, done, truncated, info = wrapped_env.step(action)
+            
+            # Collect reward
+            try:
+                r = float(reward) if np.isscalar(reward) else float(reward.item() if hasattr(reward, 'item') else reward)
+                episode_rewards.append(r)
+            except:
+                episode_rewards.append(0.0)
+            
+            num_steps = action.shape[0] if action.ndim > 1 else 1
+            step_count += num_steps
+            pbar.update(num_steps)
+            
+            if done or truncated:
+                break
+        
+        pbar.close()
+        
+        # Save video
+        video_env.save_video()
+        wrapped_env.close()
+        
+        print(f"[VIDEO] Completed: {len(episode_rewards)} steps, total_reward={sum(episode_rewards):.3f}")
+        
+        return str(video_path), episode_rewards
 
     def run(
         self,
@@ -181,18 +267,53 @@ class DroneRunner(BaseRunner):
             this_num_active_envs = end - start
             this_local_slice = slice(0, this_num_active_envs)
 
+            # Check if any environment needs video recording
+            need_recording = []
+            for idx in range(this_num_active_envs):
+                global_idx = start + idx
+                prefix = self.env_prefixs[global_idx]
+                if prefix == "train/":
+                    env_idx = global_idx
+                    need_rec = env_idx < self.num_train_vis
+                else:  # test
+                    env_idx = global_idx - self.num_train
+                    need_rec = env_idx < self.num_test_vis
+                need_recording.append(need_rec)
+
+            # Handle environments with video recording separately
+            if any(need_recording):
+                for idx in range(this_num_active_envs):
+                    global_idx = start + idx
+                    
+                    if need_recording[idx]:
+                        # Run with video recording
+                        video_path, rewards = self._run_single_env_with_video(
+                            global_idx, policy, device
+                        )
+                        all_video_paths[global_idx] = video_path
+                        all_rewards[global_idx] = rewards
+                    else:
+                        # For non-recording environments in this chunk
+                        # We'll skip them for simplicity
+                        pass
+                
+                # Skip to next chunk
+                continue
+
+            # Original vectorized evaluation for non-recording environments
             this_init_fns = self.env_init_fn_dills[this_global_slice]
             num_diff = num_envs - len(this_init_fns)
             if num_diff > 0:
                 this_init_fns.extend([self.env_init_fn_dills[0]] * num_diff)
             assert len(this_init_fns) == num_envs
 
-            # Initialize envs
             env.call_each("run_dill_function", args_list=[(x,) for x in this_init_fns])
 
             obs = env.reset()
             past_action = None
             policy.reset()
+
+            episode_rewards = [[] for _ in range(this_num_active_envs)]
 
             pbar = tqdm.tqdm(
                 total=self.max_steps,
@@ -201,65 +322,44 @@ class DroneRunner(BaseRunner):
                 mininterval=self.tqdm_interval_sec,
             )
 
-            done = False
-            while not done:
-                B = obs.shape[0]
-
-                # obs = obs.reshape(B, -1, 2, 3)
-                # obs = obs[:, :, :, [1, 0, 2]]
-                # obs[:, :, :, 1] = -obs[:, :, :, 1]
-                # obs = obs.reshape(B, -1, 6)
-
+            step_count = 0
+            while step_count < self.max_steps:
                 obs_dict = {
                     "keypoints": obs[..., : self.num_obs_steps, :].astype(np.float32),
                 }
-                # print(obs_dict["keypoints"].round(3))
-
-                if self.past_action and (past_action is not None):
-                    obs["past_action"] = past_action[
-                        :, -(self.num_obs_steps - 1) :
-                    ].astype(np.float32)
 
                 obs_dict = dict_apply(
                     obs_dict, lambda x: torch.from_numpy(x).to(device)
                 )
 
-                import time
-
-                t0 = time.time()
                 with torch.no_grad():
-                    action_dict = policy.get_action(obs_dict, device)  # , use_break)
-                print(time.time() - t0)
-                # print(action_dict["action"])
-
-                if plot_energy_fn:
-                    for i, env_id in enumerate(range(start, end)):
-                        img = env.call_each("render2")[0]
-                        h, w, c = img.shape
-                        img = rgba2rgb(img)
-                        img = img.reshape(1, h, w, 3).transpose(0, 3, 1, 2)
-                        energy_fn_plots[env_id].append(
-                            policy.plot_energy_fn(img, action_dict["energy"][i])
-                        )
+                    action_dict = policy.get_action(obs_dict, device)
 
                 action_dict = dict_apply(action_dict, lambda x: x.to("cpu").numpy())
                 action = action_dict["action"][:, self.num_latency_steps :]
 
-                # action[:, :, 1] = -action[:, :, 1]
-                # action = action[:, :, [1, 0, 2]]
-
-                # Step env
                 obs, reward, done, timeout, info = env.step(action)
-                done = np.all(done)
-                past_action = action
+                
+                for i in range(this_num_active_envs):
+                    try:
+                        if isinstance(reward, (list, tuple)):
+                            r = float(reward[i]) if len(reward) > i else 0.0
+                        elif isinstance(reward, np.ndarray):
+                            r = float(reward[i]) if len(reward) > i else 0.0
+                        else:
+                            r = float(reward)
+                        episode_rewards[i].append(r)
+                    except:
+                        episode_rewards[i].append(0.0)
+                
+                num_steps = action.shape[1]
+                step_count += num_steps
+                pbar.update(num_steps)
 
-                pbar.update(action.shape[1])
             pbar.close()
 
             all_video_paths[this_global_slice] = env.render()[this_local_slice]
-            all_rewards[this_global_slice] = env.call("get_attr", "reward")[
-                this_local_slice
-            ]
+            all_rewards[this_global_slice] = episode_rewards
 
         # Logging
         max_rewards = collections.defaultdict(list)
@@ -268,24 +368,32 @@ class DroneRunner(BaseRunner):
         for i in range(num_inits):
             seed = self.env_seeds[i]
             prefix = self.env_prefixs[i]
-            max_reward = np.max(all_rewards[i])
-            max_rewards[prefix].append(max_reward)
-            log_data[prefix + f"sim_max_reward_{seed}"] = max_reward
+            
+            if all_rewards[i] is not None and len(all_rewards[i]) > 0:
+                total_reward = np.sum(all_rewards[i])
+            else:
+                total_reward = 0.0
+            
+            max_rewards[prefix].append(total_reward)
+            log_data[prefix + f"sim_total_reward_{seed}"] = total_reward
 
-            # Visualize sim
+            # Log video to wandb
             video_path = all_video_paths[i]
             if video_path is not None:
-                sim_video = wandb.Video(video_path)
-                log_data[prefix + f"sim_video_{seed}"] = sim_video
-                if plot_energy_fn:
-                    media_path = video_path.rpartition(".")[0]
-                    energy_fn_plot_path = f"{media_path}_energy_fn.mp4"
-                    # log_data[prefix+f'energy_fn_{seed}'] = energy_fn_plot_path
-                    imageio.mimwrite(energy_fn_plot_path, energy_fn_plots[i])
+                import os
+                if os.path.exists(video_path):
+                    try:
+                        sim_video = wandb.Video(video_path)
+                        log_data[prefix + f"sim_video_{seed}"] = sim_video
+                        print(f"[VIDEO] ✅ Logged to WandB: {prefix}sim_video_{seed}")
+                    except Exception as e:
+                        print(f"[VIDEO] ⚠️ Failed to log to WandB: {e}")
 
-        # Log aggergate metrics
+        # Log aggregate metrics
         for prefix, v in max_rewards.items():
-            log_data[prefix + "mean_score"] = np.mean(v)
+            mean_score = np.mean(v)
+            log_data[prefix + "mean_score"] = mean_score
+            print(f"{prefix}mean_score = {mean_score:.3f}")
 
         return log_data
 

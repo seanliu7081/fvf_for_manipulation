@@ -57,14 +57,14 @@ energy_head:
   num_theta: 20
 
 dataloader:
-  batch_size: 256
+  batch_size: 64
   num_workers: 1
   shuffle: True
   pin_memory: True
   persistent_workers: False
 
 val_dataloader:
-  batch_size: 256
+  batch_size: 64
   num_workers: 1
   shuffle: False
   pin_memory: True
@@ -82,9 +82,9 @@ training:
   seed: 0
   resume: True
   lr_warmup_steps: 500
-  num_epochs: 500
-  checkpoint_every: 10
-  rollout_every: 10
+  num_epochs: 200
+  checkpoint_every: 4
+  rollout_every: 2
   val_every: 1
   tqdm_interval_sec: 1.0
 
