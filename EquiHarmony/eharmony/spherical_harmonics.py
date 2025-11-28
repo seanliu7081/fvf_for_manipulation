@@ -94,5 +94,7 @@ class SphericalHarmonics(HarmonicFunction):
             Y = Y.expand(B, R, Y.size(2), Y.size(3), Y.size(4))
 
         out = torch.einsum("brn,brncd->brncd", w, Y).sum(2)
+        # print(f"DEBUG=======: out.shape={out.shape}")
+        # print(f"DEBUG=======: out={out}")
 
         return out

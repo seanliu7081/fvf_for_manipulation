@@ -91,7 +91,6 @@ class ImplicitWorkflow(BaseWorkflow):
 
         device = torch.device(self.config.training.device)
         self.model.to(device)
-
         # Env runner
         env_runner: BaseRunner
         env_runner = hydra.utils.instantiate(

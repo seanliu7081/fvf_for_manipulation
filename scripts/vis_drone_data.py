@@ -9,7 +9,7 @@ sys.path.insert(0, os.path.abspath(".."))
 from fvf.dataset.replay_buffer import ReplayBuffer
 
 # Path to your data
-data_path = "/media/lht/T7TwoTB/code/fourier_value_functions/drone_gt_100"  # or the full path you used
+data_path = "/media/lht/T7TwoTB/code/fourier_value_functions/task_data/drone_goto"  # or the full path you used
 
 # Load the replay buffer
 print(f"Loading data from: {data_path}")

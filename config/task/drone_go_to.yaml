@@ -9,10 +9,10 @@ env_runner:
   env: go_to_target
   keypoint_visible_rate: ${keypoint_visible_rate}
   num_train: 10
-  num_train_vis: 2
+  num_train_vis: 1
   train_start_seed: 0
-  num_test: 20
-  num_test_vis: 10
+  num_test: 50
+  num_test_vis: 2
   test_start_seed: 100000
   max_steps: 100
   num_obs_steps: ${num_obs_steps}
@@ -21,7 +21,7 @@ env_runner:
   fps: 10
   agent_keypoints: False
   past_action: ${past_action_visible}
-  num_envs: 30
+  num_envs: 60
   action_coords: ${action_coords}
 
 dataset:
