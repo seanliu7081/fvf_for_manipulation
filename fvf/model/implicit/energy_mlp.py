@@ -20,6 +20,8 @@ from eharmony.cylindrical_harmonics import CylindricalHarmonics
 from eharmony.so3_harmonics import SO3Harmonics
 
 from eharmony.spherical_bessel_harmonics import SphericalBesselHarmonics
+from eharmony.so3_spherical_bessel_harmonics import SO3SphericalBesselHarmonics
+
 
 class EnergyMLP(nn.Module):
     """Vanilla IBC energy head."""
@@ -874,127 +876,6 @@ class SO3CylindricalEnergyMLP(nn.Module):
         gripper_pred = torch.sigmoid(self.gripper_mlp(s).tensor)
         return pos_energy, rot_energy, gripper_pred
 
-# class SphericalBesselEnergyMLP(nn.Module):
-#     """
-#     Energy MLP using Spherical Bessel Harmonics.
-    
-#     Key architecture (matching 0.82 accuracy version):
-#     - MLP takes ONLY obs_feat (NOT conditioned on r!)
-#     - MLP outputs all basis coefficients
-#     - Same coefficients used for all action candidates
-#     - Basis functions j_n(k·r)·Y_l^m(θ,φ) differentiate between actions
-    
-#     Args:
-#         obs_feat_dim: Observation feature dimension
-#         mlp_dim: MLP hidden dimension
-#         num_layers: Number of MLP layers
-#         dropout: Dropout rate
-#         spec_norm: Use spectral normalization
-#         n_max: Max Bessel order
-#         l_max: Max spherical harmonic degree
-#         n_k: Number of radial frequencies
-#         R_max: Max radius
-#         num_theta: Angular grid resolution
-#         scale_factor: Output scaling factor
-#         initialize: For Hydra compatibility
-#     """
-    
-#     def __init__(
-#         self,
-#         obs_feat_dim: int,
-#         mlp_dim: int,
-#         num_layers: int,
-#         dropout: float,
-#         spec_norm: bool,
-#         n_max: int = 1,
-#         l_max: int = 3,
-#         n_k: int = 5,
-#         R_max: float = 1.0,
-#         num_theta: int = 20,
-#         scale_factor: float = 10.0,
-#         initialize: bool = True,
-#     ):
-#         super().__init__()
-        
-#         self.n_max = n_max
-#         self.l_max = l_max
-#         self.n_k = n_k
-#         self.num_radii = n_k  # Alias for policy compatibility
-#         self.R_max = R_max
-        
-#         # Spherical Bessel Harmonics basis
-#         self.sbh = SphericalBesselHarmonics(
-#             n_max=n_max,
-#             l_max=l_max,
-#             n_k=n_k,
-#             R_max=R_max,
-#             num_theta=num_theta,
-#             grid_type="lie_learn",
-#             scale_factor=scale_factor,
-#         )
-        
-#         # Alias for policy compatibility
-#         self.sh = self.sbh
-        
-#         # MLP: obs_feat -> basis coefficients
-#         # NOTE: Does NOT take r as input! This is key difference from wrong version
-#         self.energy_mlp = MLP(
-#             [obs_feat_dim] + [mlp_dim] * num_layers + [self.sbh.num_basis],
-#             dropout=dropout,
-#             act_out=False,
-#             spec_norm=spec_norm,
-#         )
-        
-#         print(f"SphericalBesselEnergyMLP initialized:")
-#         print(f"  MLP: {obs_feat_dim} -> {self.sbh.num_basis} coefficients")
-#         print(f"  Basis: n_max={n_max}, l_max={l_max}, n_k={n_k}")
-    
-#     def forward(
-#         self,
-#         obs_feat: torch.Tensor,
-#         actions: torch.Tensor,
-#         return_coeffs: bool = False,
-#     ):
-#         """
-#         Compute energy for observation-action pairs.
-        
-#         Args:
-#             obs_feat: Encoded observations, shape [B, obs_feat_dim]
-#             actions: Spherical coordinates (r, θ, φ), shape [B, N, 3]
-#             return_coeffs: Whether to return coefficients
-            
-#         Returns:
-#             energy: Shape [B, N]
-#             coeffs (optional): Shape [B, num_basis]
-#         """
-#         B = obs_feat.shape[0]
-        
-#         # Handle different action shapes
-#         if actions.dim() == 4:
-#             actions = actions.squeeze(2)
-#         if actions.dim() == 2:
-#             actions = actions.unsqueeze(1)
-        
-#         B, N, D = actions.shape
-        
-#         # Get coefficients from MLP (same for all actions!)
-#         coeffs = self.energy_mlp(obs_feat)  # [B, num_basis]
-        
-#         # Expand coefficients for all action candidates
-#         coeffs_expanded = coeffs.unsqueeze(1).expand(-1, N, -1)  # [B, N, num_basis]
-#         coeffs_flat = coeffs_expanded.reshape(B * N, -1)  # [B*N, num_basis]
-        
-#         # Flatten actions
-#         actions_flat = actions.reshape(B * N, 3)  # [B*N, 3]
-        
-#         # Evaluate basis functions and compute energy
-#         energy_flat = self.sbh(coeffs_flat, actions_flat)  # [B*N]
-#         energy = energy_flat.view(B, N)  # [B, N]
-        
-#         if return_coeffs:
-#             return energy, coeffs
-#         return energy
-
 
 class SphericalBesselEnergyMLP(nn.Module):
     """
@@ -1090,6 +971,163 @@ class SphericalBesselEnergyMLP(nn.Module):
         # Compute energy (EXACT)
         energy_flat = self.sbh(coeffs_flat, actions_flat)  # [B*N]
         energy = energy_flat.view(B, N)  # [B, N]
+        
+        if return_coeffs:
+            return energy, coeffs
+        return energy
+
+class SO3SphericalBesselEnergyMLP(nn.Module):
+    """
+    SO3 Equivariant Spherical Bessel Energy MLP.
+    
+    Args:
+        obs_feat_dim: Dimension of SO3 equivariant observation features
+        mlp_dim: Hidden dimension of SO3MLP
+        num_layers: Number of SO3MLP layers
+        dropout: Dropout rate
+        lmax: Maximum frequency in SO3MLP
+        N: Number of discrete activation features
+        n_max: Maximum Bessel order
+        l_max: Maximum spherical harmonic degree for basis
+        n_k: Number of Bessel frequencies
+        R_max: Maximum radius for Bessel normalization
+        num_theta: Angular grid resolution
+        scale_factor: Output energy scaling
+        initialize: Whether to initialize weights
+    """
+    
+    def __init__(
+        self,
+        obs_feat_dim: int,
+        mlp_dim: int,
+        num_layers: int,
+        dropout: float,
+        lmax: int,
+        N: int,
+        n_max: int = 1,
+        l_max: int = 3,
+        n_k: int = 5,
+        R_max: float = 1.0,
+        num_theta: int = 20,
+        scale_factor: float = 10.0,
+        spec_norm: bool = False,  # ignored, for interface compatibility
+        initialize: bool = True,
+    ):
+        super().__init__()
+        
+        self.n_max = n_max
+        self.l_max = l_max
+        self.n_k = n_k
+        self.num_radii = n_k  # Alias for policy compatibility
+        self.R_max = R_max
+        self.lmax = lmax
+        
+        # Spherical Bessel Harmonics basis
+        self.sbh = SO3SphericalBesselHarmonics(
+            n_max=n_max,
+            l_max=l_max,
+            n_k=n_k,
+            R_max=R_max,
+            num_theta=num_theta,
+            scale_factor=scale_factor,
+        )
+        self.sh = self.sbh  # Alias for policy compatibility
+        
+        # SO3 group setup
+        self.G = group.so3_group()
+        self.gspace = gspaces.no_base_space(self.G)
+        
+        # Input representation: obs_feat from SO3KeypointEncoder
+        # obs_feat_dim copies of spectral regular representation
+        rho = self.G.spectral_regular_representation(*self.G.bl_irreps(L=lmax))
+        
+        # Input type: obs_feat ONLY (NO r conditioning - key difference from SO3SphereEnergyMLP!)
+        self.in_type = enn.FieldType(
+            self.gspace,
+            obs_feat_dim * [rho]
+        )
+        
+        # Output type: irreps l=0 to l=l_max, giving (l_max+1)² values
+        out_type = enn.FieldType(
+            self.gspace,
+            [self.gspace.irrep(l) for l in range(l_max + 1)]
+        )
+        self.num_so3_output = sum(2*l + 1 for l in range(l_max + 1))  # = (l_max+1)²
+        
+        # SO3 MLP
+        self.energy_mlp = SO3MLP(
+            self.in_type,
+            channels=[mlp_dim] * num_layers,
+            lmaxs=[lmax] * num_layers,
+            out_type=out_type,
+            N=N,
+            dropout=dropout,
+            act_out=False,
+            initialize=initialize,
+        )
+        
+        # Projection layer: (l_max+1)² → num_basis
+        # This expands the SO3 irrep output to full Bessel coefficient space
+        self.coeff_proj = nn.Linear(self.num_so3_output, self.sbh.num_basis)
+        
+        print(f"SO3SphericalBesselEnergyMLP:")
+        print(f"  Input: obs_feat only (no r conditioning)")
+        print(f"  SO3MLP: {obs_feat_dim} reps -> {self.num_so3_output} (l=0..{l_max} irreps)")
+        print(f"  Projection: {self.num_so3_output} -> {self.sbh.num_basis} coefficients")
+        print(f"  Bessel basis: n_max={n_max}, l_max={l_max}, n_k={n_k}")
+    
+    def forward(
+        self,
+        obs_feat: torch.Tensor,
+        actions: torch.Tensor = None,
+        return_coeffs: bool = False,
+    ):
+        """
+        Compute energy using SO3 equivariant MLP + Spherical Bessel basis.
+        
+        Args:
+            obs_feat: [B, obs_feat_dim * irrep_size] - SO3 equivariant features
+            actions: [B, N, 3] - (r, θ, φ) spherical coordinates
+                     If None, evaluate on grid
+            return_coeffs: Whether to return Bessel coefficients
+        
+        Returns:
+            energy: [B, N] if actions provided, [B, n_k, num_theta, num_phi] for grid
+            coeffs (optional): [B, num_basis] Bessel coefficients
+        """
+        B = obs_feat.shape[0]
+        
+        # Wrap obs_feat in equivariant type
+        obs_feat_wrapped = self.in_type(obs_feat)
+        
+        # SO3 MLP forward
+        so3_output = self.energy_mlp(obs_feat_wrapped).tensor  # [B, num_so3_output]
+        
+        # Project to full Bessel coefficient space
+        coeffs = self.coeff_proj(so3_output)  # [B, num_basis]
+        
+        if actions is not None:
+            # Point evaluation mode
+            if actions.dim() == 4:
+                actions = actions.squeeze(2)
+            if actions.dim() == 2:
+                actions = actions.unsqueeze(1)
+            
+            B, N, D = actions.shape
+            
+            # Expand coeffs for all actions (same coeffs for all N actions)
+            coeffs_expanded = coeffs.unsqueeze(1).expand(-1, N, -1)  # [B, N, num_basis]
+            coeffs_flat = coeffs_expanded.reshape(B * N, -1)  # [B*N, num_basis]
+            
+            # Flatten actions
+            actions_flat = actions.reshape(B * N, 3)  # [B*N, 3]
+            
+            # Compute energy
+            energy_flat = self.sbh(coeffs_flat, actions_flat)  # [B*N]
+            energy = energy_flat.view(B, N)  # [B, N]
+        else:
+            # Grid evaluation mode
+            energy = self.sbh(coeffs, None)  # [B, n_k, num_theta, num_phi]
         
         if return_coeffs:
             return energy, coeffs
