@@ -1,0 +1,42 @@
+name: drone_go_to_image
+
+# Dimensions
+obs_dim: 9          # keypoint flattened: 3 points × 3D = 9
+action_dim: 3       # 3D action (delta position)
+keypoint_dim: 2     # same as lowdim version
+num_keypoints: 3    # current, initial, target
+
+# Dataset
+dataset:
+  _target_: fvf.dataset.drone_image_dataset.DroneImageDataset
+  path: /media/lht/T7TwoTB/code/fourier_value_functions/task_data/drone_goto_image
+  horizon: ${horizon}
+  pad_before: ${eval:'${num_obs_steps}-1+${num_latency_steps}'}
+  pad_after: ${eval:'${num_action_steps}-1'}
+  action_coords: ${action_coords}
+  crop_image_size: ${crop_image_size}
+  seed: 0
+  val_ratio: 0.02
+  max_train_episodes: 50
+
+env_runner:
+  _target_: fvf.env_runner.drone_goto_image_runner.DroneImageRunner
+  env: go_to_target
+  keypoint_visible_rate: ${keypoint_visible_rate}
+  num_train: 10
+  num_train_vis: 1
+  train_start_seed: 0
+  num_test: 50
+  num_test_vis: 2
+  test_start_seed: 100000
+  max_steps: 100
+  num_obs_steps: ${num_obs_steps}
+  num_action_steps: ${num_action_steps}
+  num_latency_steps: ${num_latency_steps}
+  fps: 10
+  agent_keypoints: False
+  past_action: ${past_action_visible}
+  num_envs: 60
+  action_coords: ${action_coords}
+  render_size: 96
+  crop_size: ${crop_image_size}

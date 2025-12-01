@@ -409,3 +409,89 @@ class SO2ObsEncoder3(nn.Module):
         obs_feat = self.lin(img_feat_state)
         
         return obs_feat
+    
+class DroneObsEncoder(nn.Module):
+    """
+    Observation encoder for drone tasks with image observations.
+    
+    Input format (obs dict):
+        - "image": (B, T, C, H, W) or (B, T, H, W, C) - RGB images
+        - "keypoint": (B, T, 3, 3) - 3D keypoints [current_pos, initial_pos, target_pos]
+    """
+    def __init__(
+        self,
+        num_obs: int,
+        img_channels: int = 3,
+        z_dim: int = 256,
+        dropout: float = 0.0,
+        pos_dim: int = 3,  # 3D position for drone (vs 2D for PushT)
+        use_keypoint: bool = True,
+        spec_norm: bool = False,
+        initialize: bool = True,
+    ):
+        """
+        Args:
+            num_obs: number of observation frames (temporal window)
+            img_channels: number of image channels (3 for RGB)
+            z_dim: latent dimension
+            dropout: dropout rate
+            pos_dim: dimension of position (3 for 3D drone, 2 for 2D PushT)
+            use_keypoint: if True, use full keypoint (9 dim), else use agent_pos (3 dim)
+        """
+        super().__init__()
+        self.num_obs = num_obs
+        self.z_dim = z_dim
+        self.pos_dim = pos_dim
+        self.use_keypoint = use_keypoint
+        
+        self.image_encoder = ImageEncoder(img_channels, z_dim, dropout)
+        
+        if use_keypoint:
+            state_dim = num_obs * 9
+        else:
+            state_dim = num_obs * pos_dim
+        
+        self.lin = MLP(
+            [num_obs * z_dim + state_dim, z_dim],
+            dropout=dropout,
+            act_out=True,
+            spec_norm=spec_norm,
+        )
+
+    def forward(self, obs: dict) -> torch.Tensor:
+        """
+        Args:
+            obs: dict with keys:
+                - "image": (B, T, C, H, W) - RGB images (or B, T, H, W, C)
+                - "agent_pos": (B, T, 3) - drone position
+                  or "keypoint": (B, T, 3, 3) - full keypoints
+        
+        Returns:
+            obs_feat: (B, z_dim) - encoded observation features
+        """
+        image = obs["image"]
+        
+        # (B, T, H, W, C) -> (B, T, C, H, W)
+        if image.shape[-1] == 3 and image.dim() == 5:
+            image = image.permute(0, 1, 4, 2, 3)
+
+        if image.dtype == torch.uint8:
+            image = image.float() / 255.0
+        
+        B, T, C, H, W = image.shape
+        
+        # (B*T, C, H, W) -> (B*T, z_dim, 1, 1)
+        img_feat = self.image_encoder(image.view(B * T, C, H, W))
+        img_feat = img_feat.view(B, -1)  # (B, T * z_dim)
+        
+        if self.use_keypoint and "keypoint" in obs:
+            # keypoint: (B, T, 3, 3) -> (B, T * 9)
+            state = obs["keypoint"].view(B, -1)
+        else:
+            # agent_pos: (B, T, 3) -> (B, T * 3)
+            state = obs["agent_pos"].view(B, -1)
+        
+        img_feat_state = torch.cat([img_feat, state], dim=-1)
+        obs_feat = self.lin(img_feat_state)
+        
+        return obs_feat
