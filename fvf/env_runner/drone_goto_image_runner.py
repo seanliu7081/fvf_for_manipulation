@@ -62,15 +62,15 @@ def get_third_person_camera_image(env, width=96, height=96):
     return rgb_image
 
 
-def get_keypoint_from_env(env):
-    """Get keypoint [current_pos, initial_pos, target_pos] from environment."""
+def get_keypoints_from_env(env):
+    """Get keypoints [current_pos, initial_pos, target_pos] from environment."""
     drone_state = env._getDroneStateVector(0)
     current_pos = drone_state[:3]
     initial_pos = env.initial_pos if hasattr(env, 'initial_pos') and env.initial_pos is not None else current_pos
     target_pos = env.TARGET_POS
     
-    keypoint = np.stack([current_pos, initial_pos, target_pos], axis=0)  # (3, 3)
-    return keypoint.astype(np.float32)
+    keypoints = np.stack([current_pos, initial_pos, target_pos], axis=0)  # (3, 3)
+    return keypoints.astype(np.float32)
 
 
 class DroneImageRunner(BaseRunner):
@@ -80,7 +80,7 @@ class DroneImageRunner(BaseRunner):
         self,
         output_dir,
         env,
-        keypoint_visible_rate=1.0,
+        keypoints_visible_rate=1.0,
         num_train=10,
         num_train_vis=1,
         train_start_seed=0,
@@ -137,7 +137,7 @@ class DroneImageRunner(BaseRunner):
 
         self.fps = fps
         self.crf = crf
-        self.agent_keypoints = agent_keypoints
+        self.agent_keypointss = agent_keypoints
         self.num_obs_steps = num_obs_steps
         self.num_action_steps = num_action_steps
         self.num_latency_steps = num_latency_steps
@@ -149,49 +149,49 @@ class DroneImageRunner(BaseRunner):
         self.num_test_vis = num_test_vis
         self.output_dir = output_dir
 
-    def _get_obs_from_env(self, env, image_buffer, keypoint_buffer):
+    def _get_obs_from_env(self, env, image_buffer, keypoints_buffer):
         """
         Get observation dict from environment.
         
         Args:
             env: GoToTargetEnv instance
             image_buffer: list of past images (T, H, W, C)
-            keypoint_buffer: list of past keypoints (T, 3, 3)
+            keypoints_buffer: list of past keypointss (T, 3, 3)
         
         Returns:
-            obs_dict: {"image": (1, T, C, H, W), "keypoint": (1, T, 3, 3)}
+            obs_dict: {"image": (1, T, C, H, W), "keypoints": (1, T, 3, 3)}
         """
         # Get current observation
         image = get_third_person_camera_image(env, self.render_size, self.render_size)
-        keypoint = get_keypoint_from_env(env)
+        keypoints = get_keypoints_from_env(env)
         
         # Add to buffer
         image_buffer.append(image)
-        keypoint_buffer.append(keypoint)
+        keypoints_buffer.append(keypoints)
         
         # Keep only last num_obs_steps
         while len(image_buffer) > self.num_obs_steps:
             image_buffer.pop(0)
-        while len(keypoint_buffer) > self.num_obs_steps:
-            keypoint_buffer.pop(0)
+        while len(keypoints_buffer) > self.num_obs_steps:
+            keypoints_buffer.pop(0)
         
         # Pad if not enough history
         while len(image_buffer) < self.num_obs_steps:
             image_buffer.insert(0, image_buffer[0])
-        while len(keypoint_buffer) < self.num_obs_steps:
-            keypoint_buffer.insert(0, keypoint_buffer[0])
+        while len(keypoints_buffer) < self.num_obs_steps:
+            keypoints_buffer.insert(0, keypoints_buffer[0])
         
         # Stack: (T, H, W, C) -> (T, C, H, W)
         images = np.stack(image_buffer, axis=0)  # (T, H, W, C)
         images = np.moveaxis(images, -1, 1)  # (T, C, H, W)
         images = images.astype(np.float32) / 255.0
         
-        keypoints = np.stack(keypoint_buffer, axis=0)  # (T, 3, 3)
+        keypointss = np.stack(keypoints_buffer, axis=0)  # (T, 3, 3)
         
         # Add batch dimension
         obs_dict = {
             "image": images[None, ...],      # (1, T, C, H, W)
-            "keypoint": keypoints[None, ...], # (1, T, 3, 3)
+            "keypoints": keypointss[None, ...], # (1, T, 3, 3)
         }
         
         return obs_dict
@@ -224,7 +224,7 @@ class DroneImageRunner(BaseRunner):
         
         # Initialize observation buffers
         image_buffer = []
-        keypoint_buffer = []
+        keypoints_buffer = []
         
         episode_rewards = []
         episode_success = False
@@ -240,7 +240,7 @@ class DroneImageRunner(BaseRunner):
         step_count = 0
         while step_count < self.max_steps:
             # Get observation
-            obs_dict = self._get_obs_from_env(base_env, image_buffer, keypoint_buffer)
+            obs_dict = self._get_obs_from_env(base_env, image_buffer, keypoints_buffer)
             obs_dict = dict_apply(obs_dict, lambda x: torch.from_numpy(x).to(device))
             
             # Record frame for video

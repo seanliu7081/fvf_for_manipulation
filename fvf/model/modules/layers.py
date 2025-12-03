@@ -59,16 +59,69 @@ class MLP(nn.Module):
 #         return self.mlp(x)
 
 
+# class ResNetBlock(nn.Module):
+#     def __init__(
+#         self,
+#         in_channels: int,
+#         out_channels: int,
+#         kernel_size: int=3,
+#         stride: int=1,
+#     ):
+#         super().__init__()
+
+#         self.conv1 = nn.Sequential(
+#             nn.Conv2d(
+#                 in_channels,
+#                 out_channels,
+#                 kernel_size=kernel_size,
+#                 padding=(kernel_size - 1) // 2,
+#                 stride=stride
+#             ),
+#             nn.ReLU(inplace=True)
+#         )
+
+#         self.act = nn.ReLU(inplace=True)
+#         self.conv2 = nn.Sequential(
+#             nn.Conv2d(
+#                 in_channels,
+#                 out_channels,
+#                 kernel_size=kernel_size,
+#                 padding=(kernel_size - 1) // 2,
+#                 stride=stride
+#             ),
+#         )
+
+#         self.upscale = None
+#         if in_channels != out_channels or stride != 1:
+#             self.upscale = nn.Conv2d(
+#                 in_channels,
+#                 out_channels,
+#                 kernel_size=1,
+#                 stride=stride,
+#                 bias=False
+#             )
+
+#     def forward(self, x: torch.Tensor) -> torch.Tensor:
+#         res = x
+#         out = self.conv1(x)
+#         out = self.conv2(x)
+#         if self.upscale is not None:
+#             out += self.upscale(res)
+#         else:
+#             out += res
+#         out = self.act(out)
+
+#         return out
+
 class ResNetBlock(nn.Module):
     def __init__(
         self,
         in_channels: int,
         out_channels: int,
-        kernel_size: int=3,
-        stride: int=1,
+        kernel_size: int = 3,
+        stride: int = 1,
     ):
         super().__init__()
-
         self.conv1 = nn.Sequential(
             nn.Conv2d(
                 in_channels,
@@ -77,38 +130,36 @@ class ResNetBlock(nn.Module):
                 padding=(kernel_size - 1) // 2,
                 stride=stride
             ),
+            nn.BatchNorm2d(out_channels),
             nn.ReLU(inplace=True)
         )
-
-        self.act = nn.ReLU(inplace=True)
         self.conv2 = nn.Sequential(
             nn.Conv2d(
-                in_channels,
+                out_channels,
                 out_channels,
                 kernel_size=kernel_size,
                 padding=(kernel_size - 1) // 2,
-                stride=stride
+                stride=1
             ),
+            nn.BatchNorm2d(out_channels),
         )
-
-        self.upscale = None
+        self.act = nn.ReLU(inplace=True)
+        
+        self.shortcut = None
         if in_channels != out_channels or stride != 1:
-            self.upscale = nn.Conv2d(
-                in_channels,
-                out_channels,
-                kernel_size=1,
-                stride=stride,
-                bias=False
+            self.shortcut = nn.Sequential(
+                nn.Conv2d(in_channels, out_channels, kernel_size=1, stride=stride, bias=False),
+                nn.BatchNorm2d(out_channels),
             )
 
     def forward(self, x: torch.Tensor) -> torch.Tensor:
         res = x
         out = self.conv1(x)
-        out = self.conv2(x)
-        if self.upscale is not None:
-            out += self.upscale(res)
-        else:
-            out += res
+        out = self.conv2(out)
+        
+        if self.shortcut is not None:
+            res = self.shortcut(res)
+        
+        out = out + res
         out = self.act(out)
-
         return out

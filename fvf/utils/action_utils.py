@@ -35,7 +35,8 @@ def convert_to_cylindrical(action):
 def convert_to_spherical(action):
     xy = action[:, 0] ** 2 + action[:, 1] ** 2
     r = np.sqrt(xy + action[:, 2] ** 2)
-    theta = np.arccos(action[:, 2] / r)
+    # Handle division by zero: when r=0, theta is undefined but we set it to 0
+    theta = np.arccos(np.clip(action[:, 2] / (r + 1e-8), -1.0, 1.0))
     phi = np.arctan2(action[:, 1], action[:, 0])
     phi[np.where(phi < 0)] += 2 * np.pi
     # theta = np.arctan2(action[:, 1], action[:, 0])

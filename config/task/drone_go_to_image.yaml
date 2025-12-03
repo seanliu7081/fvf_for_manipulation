@@ -17,12 +17,12 @@ dataset:
   crop_image_size: ${crop_image_size}
   seed: 0
   val_ratio: 0.02
-  max_train_episodes: 50
+  max_train_episodes: 90
 
 env_runner:
   _target_: fvf.env_runner.drone_goto_image_runner.DroneImageRunner
   env: go_to_target
-  keypoint_visible_rate: ${keypoint_visible_rate}
+  keypoints_visible_rate: ${keypoint_visible_rate}
   num_train: 10
   num_train_vis: 1
   train_start_seed: 0

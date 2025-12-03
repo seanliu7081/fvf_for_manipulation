@@ -135,7 +135,7 @@ def get_third_person_camera_image(env, width=128, height=128):
 def main(output, num_episodes, image_width, image_height, third_person, both_views):
     """
     - img: (T, H, W, 3) uint8
-    - keypoint: (T, 3, 3) float32 - 3D keypoints [current_pos, initial_pos, target_pos]
+    - keypoints: (T, 3, 3) float32 - 3D keypointss [current_pos, initial_pos, target_pos]
     - action: (T, 3) float32
     - state: (T, 9) float32
     """
@@ -156,7 +156,7 @@ def main(output, num_episodes, image_width, image_height, third_person, both_vie
     while success < num_episodes:
         episode_data = {
             "img": [],           # 与 PushT 一致
-            "keypoint": [],      # 与 PushT 一致
+            "keypoints": [],      # 与 PushT 一致
             "action": [],
             "state": [],         # 与 PushT 一致
         }
@@ -191,10 +191,10 @@ def main(output, num_episodes, image_width, image_height, third_person, both_vie
             target_pos = obs[6:9]
             action = np.clip(target_pos - drone_pos, -0.1, 0.1)
             
-            keypoint = np.stack([drone_pos, initial_pos, target_pos], axis=0)
+            keypoints = np.stack([drone_pos, initial_pos, target_pos], axis=0)
             
             episode_data["img"].append(image)
-            episode_data["keypoint"].append(np.float32(keypoint))
+            episode_data["keypoints"].append(np.float32(keypoints))
             episode_data["action"].append(np.float32(action))
             episode_data["state"].append(np.float32(obs))
             if both_views:
@@ -212,7 +212,7 @@ def main(output, num_episodes, image_width, image_height, third_person, both_vie
         if final_distance < env.SUCCESS_TH:
             data_dict = {
                 "img": np.stack(episode_data["img"]),              # (T, H, W, 3) uint8
-                "keypoint": np.stack(episode_data["keypoint"]),    # (T, 3, 3) float32
+                "keypoints": np.stack(episode_data["keypoints"]),    # (T, 3, 3) float32
                 "action": np.stack(episode_data["action"]),        # (T, 3) float32
                 "state": np.stack(episode_data["state"]),          # (T, 9) float32
             }
@@ -235,7 +235,7 @@ def main(output, num_episodes, image_width, image_height, third_person, both_vie
     print("="*60)
     print("Expected format (like PushT):")
     print("  img:      (T, H, W, 3) uint8")
-    print("  keypoint: (T, N, D) float32  # PushT: (T,18,2), Drone: (T,3,3)")
+    print("  keypoints: (T, N, D) float32  # PushT: (T,18,2), Drone: (T,3,3)")
     print("  action:   (T, A) float32     # PushT: (T,2), Drone: (T,3)")
     print("  state:    (T, S) float32     # PushT: (T,5), Drone: (T,9)")
     print("-" * 60)

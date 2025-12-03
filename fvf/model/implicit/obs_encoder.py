@@ -32,12 +32,19 @@ class KeypointEncoder(nn.Module):
             spec_norm=spec_norm,
         )
 
+    # def forward(self, obs) -> torch.Tensor:
+    #     B, _, _ = obs["keypoints"].shape
+
+    #     x = obs["keypoints"].reshape(B, -1)
+    #     obs_feat = self.lin(x)
+
+    #     return obs_feat
+
     def forward(self, obs) -> torch.Tensor:
-        B, _, _ = obs["keypoints"].shape
-
-        x = obs["keypoints"].reshape(B, -1)
+        keypoints = obs["keypoints"]
+        B = keypoints.shape[0]
+        x = keypoints.reshape(B, -1)
         obs_feat = self.lin(x)
-
         return obs_feat
 
 
@@ -424,8 +431,8 @@ class DroneObsEncoder(nn.Module):
         img_channels: int = 3,
         z_dim: int = 256,
         dropout: float = 0.0,
-        pos_dim: int = 3,  # 3D position for drone (vs 2D for PushT)
-        use_keypoint: bool = True,
+        pos_dim: int = 3,
+        use_keypoints: bool = True,
         spec_norm: bool = False,
         initialize: bool = True,
     ):
@@ -442,11 +449,12 @@ class DroneObsEncoder(nn.Module):
         self.num_obs = num_obs
         self.z_dim = z_dim
         self.pos_dim = pos_dim
-        self.use_keypoint = use_keypoint
+        self.use_keypoints = use_keypoints
         
         self.image_encoder = ImageEncoder(img_channels, z_dim, dropout)
+        self.img_norm = nn.LayerNorm(num_obs * z_dim)
         
-        if use_keypoint:
+        if use_keypoints:
             state_dim = num_obs * 9
         else:
             state_dim = num_obs * pos_dim
@@ -457,14 +465,13 @@ class DroneObsEncoder(nn.Module):
             act_out=True,
             spec_norm=spec_norm,
         )
-
+    
     def forward(self, obs: dict) -> torch.Tensor:
         """
         Args:
             obs: dict with keys:
-                - "image": (B, T, C, H, W) - RGB images (or B, T, H, W, C)
-                - "agent_pos": (B, T, 3) - drone position
-                  or "keypoint": (B, T, 3, 3) - full keypoints
+                - "image": (B, T, C, H, W) - RGB images
+                - "keypoints": (B, T, 3, 3) or (B, T, 9) - keypoints
         
         Returns:
             obs_feat: (B, z_dim) - encoded observation features
@@ -480,17 +487,16 @@ class DroneObsEncoder(nn.Module):
         
         B, T, C, H, W = image.shape
         
-        # (B*T, C, H, W) -> (B*T, z_dim, 1, 1)
+        # Encode images: (B*T, C, H, W) -> (B*T, z_dim)
         img_feat = self.image_encoder(image.view(B * T, C, H, W))
         img_feat = img_feat.view(B, -1)  # (B, T * z_dim)
-        
-        if self.use_keypoint and "keypoint" in obs:
-            # keypoint: (B, T, 3, 3) -> (B, T * 9)
-            state = obs["keypoint"].view(B, -1)
-        else:
-            # agent_pos: (B, T, 3) -> (B, T * 3)
-            state = obs["agent_pos"].view(B, -1)
-        
+        img_feat = self.img_norm(img_feat)
+
+        keypoints = obs.get("keypoints", obs.get("keypoint"))
+        if keypoints is None:
+            raise KeyError(f"No keypoints found. Keys: {obs.keys()}")
+        state = keypoints.view(B, -1)  # (B, T * 9)
+
         img_feat_state = torch.cat([img_feat, state], dim=-1)
         obs_feat = self.lin(img_feat_state)
         

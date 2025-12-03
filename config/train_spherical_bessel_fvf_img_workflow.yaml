@@ -9,21 +9,22 @@ obs_dim: ${task.obs_dim}
 action_dim: ${task.action_dim}
 keypoint_dim: ${task.keypoint_dim}
 task_name: ${task.name}
-
 exp_name: 'default'
+
+# Spherical Bessel parameters
 horizon: 2
 num_obs_steps: 2
 num_action_steps: 1
 num_latency_steps: 0
 past_action_visible: False
 keypoint_visible_rate: 1.0
-
 z_dim: 256
+
+n_max: 1
 lmax: 3
-min_radius: 0.1
-num_radii: 100
-angular_freq: 3
-N: 8
+n_k: 5
+R_max: 1.0
+scale_factor: 10.0
 
 action_coords: "spherical"
 crop_image_size: 84
@@ -37,7 +38,7 @@ policy:
   num_neg_act_samples: 256
   pred_n_samples: 1000
   optimize_negatives: False 
-  sample_actions: True 
+  sample_actions: False 
   temperature: 1.0
   grad_pen: False
 
@@ -48,31 +49,33 @@ obs_encoder:
   z_dim: ${z_dim}
   dropout: 0.1
   pos_dim: 3
-  use_keypoint: True
+  use_keypoints: True
+  lmax: ${lmax}
+  N: ${N}
 
 energy_head:
   _target_: fvf.model.implicit.energy_mlp.SphericalBesselEnergyMLP
-  obs_feat_dim: ${z_dim}
+  obs_feat_dim: 256
   mlp_dim: ${z_dim}
   num_layers: 4
   dropout: 0.1
   spec_norm: False
   n_max: 1
   l_max: ${lmax}
-  n_k: ${num_radii}
+  n_k: ${n_k}
   R_max: 1.0
   num_theta: 20
   scale_factor: 10.0
 
 dataloader:
-  batch_size: 64
+  batch_size: 128
   num_workers: 1
   shuffle: True
   pin_memory: True
   persistent_workers: False
 
 val_dataloader:
-  batch_size: 64
+  batch_size: 128
   num_workers: 1
   shuffle: False
   pin_memory: True
@@ -90,7 +93,7 @@ training:
   seed: 0
   resume: True
   lr_warmup_steps: 500
-  num_epochs: 200
+  num_epochs: 400
   checkpoint_every: 10
   rollout_every: 10
   val_every: 1
