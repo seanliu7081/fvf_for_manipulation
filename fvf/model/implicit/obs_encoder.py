@@ -501,3 +501,65 @@ class DroneObsEncoder(nn.Module):
         obs_feat = self.lin(img_feat_state)
         
         return obs_feat
+
+class SO2DroneObsEncoder(nn.Module):
+    def __init__(
+        self,
+        num_obs: int,
+        img_channels: int = 3,
+        z_dim: int = 256,
+        dropout: float = 0.0,
+        pos_dim: int = 3,
+        use_keypoints: bool = True,
+        spec_norm: bool = False,
+        initialize: bool = True,
+        lmax: int = 3,
+        N: int = 16,
+    ):
+        super().__init__()
+        self.num_obs = num_obs
+        self.z_dim = z_dim
+        self.pos_dim = pos_dim
+        self.use_keypoints = use_keypoints
+        
+        self.image_encoder = SO2ImageEncoder(img_channels, z_dim, dropout, lmax=lmax, N=N, initialize=initialize)
+        
+        # Get actual output dimension from SO2ImageEncoder
+        img_feat_dim = self.image_encoder.out_type.size
+        self.img_norm = nn.LayerNorm(num_obs * img_feat_dim)
+        
+        if use_keypoints:
+            state_dim = num_obs * 9
+        else:
+            state_dim = num_obs * pos_dim
+        
+        self.lin = MLP(
+            [num_obs * img_feat_dim + state_dim, z_dim],
+            dropout=dropout,
+            act_out=True,
+            spec_norm=spec_norm,
+        )
+    
+    def forward(self, obs: dict) -> torch.Tensor:
+        image = obs["image"]
+        
+        if image.shape[-1] == 3 and image.dim() == 5:
+            image = image.permute(0, 1, 4, 2, 3)
+        if image.dtype == torch.uint8:
+            image = image.float() / 255.0
+        
+        B, T, C, H, W = image.shape
+        
+        img_feat = self.image_encoder(image.view(B * T, C, H, W))
+        img_feat = img_feat.view(B, -1)
+        img_feat = self.img_norm(img_feat)
+        
+        keypoints = obs.get("keypoints", obs.get("keypoint"))
+        if keypoints is None:
+            raise KeyError(f"No keypoints found. Keys: {obs.keys()}")
+        state = keypoints.view(B, -1)
+        
+        img_feat_state = torch.cat([img_feat, state], dim=-1)
+        obs_feat = self.lin(img_feat_state)
+        
+        return obs_feat

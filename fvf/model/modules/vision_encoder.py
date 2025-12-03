@@ -201,9 +201,9 @@ class SO2ImageEncoder(nn.Module):
         # 12x12
         layers.append(SO2ResNetBlock(layers[-1].out_type, z_dim, lmax=lmax, N=N, initialize=initialize))
         layers.append(enn.NormMaxPool(layers[-1].out_type, 2))
-        # 6x6
-        layers.append(SO2ResNetBlock(layers[-1].out_type, z_dim, lmax=lmax, N=N, initialize=initialize))
-        layers.append(enn.NormMaxPool(layers[-1].out_type, 2))
+        # # 6x6
+        # layers.append(SO2ResNetBlock(layers[-1].out_type, z_dim, lmax=lmax, N=N, initialize=initialize))
+        # layers.append(enn.NormMaxPool(layers[-1].out_type, 2))
         # 3x3
         act = enn.FourierELU(
             self.gspace,
@@ -217,7 +217,8 @@ class SO2ImageEncoder(nn.Module):
             enn.R2Conv(
                 layers[-1].out_type,
                 act.in_type,
-                kernel_size=3,
+                # kernel_size=3,
+                kernel_size=5,
                 padding=0,
                 initialize=initialize
             )
