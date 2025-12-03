@@ -201,9 +201,9 @@ class SO2ImageEncoder(nn.Module):
         # 12x12
         layers.append(SO2ResNetBlock(layers[-1].out_type, z_dim, lmax=lmax, N=N, initialize=initialize))
         layers.append(enn.NormMaxPool(layers[-1].out_type, 2))
-        # # 6x6
-        # layers.append(SO2ResNetBlock(layers[-1].out_type, z_dim, lmax=lmax, N=N, initialize=initialize))
-        # layers.append(enn.NormMaxPool(layers[-1].out_type, 2))
+        # 6x6
+        layers.append(SO2ResNetBlock(layers[-1].out_type, z_dim, lmax=lmax, N=N, initialize=initialize))
+        layers.append(enn.NormMaxPool(layers[-1].out_type, 2))
         # 3x3
         act = enn.FourierELU(
             self.gspace,
@@ -217,7 +217,62 @@ class SO2ImageEncoder(nn.Module):
             enn.R2Conv(
                 layers[-1].out_type,
                 act.in_type,
-                # kernel_size=3,
+                kernel_size=3,
+                padding=0,
+                initialize=initialize
+            )
+        )
+        layers.append(act)
+        # 1x1
+
+        self.out_type = layers[-1].out_type
+        self.conv = nn.Sequential(*layers)
+
+    def forward(self, x):
+        B = x.size(0)
+        x = enn.GeometricTensor(x, self.in_type)
+        out = self.conv(x)
+
+        return out.tensor
+
+class SO2DroneImageEncoder(nn.Module):
+    def __init__(self, in_channels, z_dim, dropout, lmax=3, N=16, initialize=True):
+        super().__init__()
+        self.G = group.so2_group()
+        self.gspace = GSpace2D((None, -1), lmax)
+
+        self.in_type = enn.FieldType(
+            self.gspace,
+            [self.gspace.trivial_repr] * in_channels
+        )
+
+        layers = list()
+        # 96x96
+        layers.append(SO2ResNetBlock(self.in_type, z_dim // 8, lmax=lmax, N=N, initialize=initialize))
+        layers.append(enn.NormMaxPool(layers[-1].out_type, 2))
+        # 48x48
+        layers.append(SO2ResNetBlock(layers[-1].out_type, z_dim // 4, lmax=lmax, N=N, initialize=initialize))
+        layers.append(enn.NormMaxPool(layers[-1].out_type, 2))
+        # 24x24
+        layers.append(SO2ResNetBlock(layers[-1].out_type, z_dim // 2, lmax=lmax, N=N, initialize=initialize))
+        layers.append(enn.NormMaxPool(layers[-1].out_type, 2))
+        # 12x12
+        layers.append(SO2ResNetBlock(layers[-1].out_type, z_dim, lmax=lmax, N=N, initialize=initialize))
+        layers.append(enn.NormMaxPool(layers[-1].out_type, 2))
+
+        # 3x3
+        act = enn.FourierELU(
+            self.gspace,
+            channels=z_dim,
+            irreps=self.G.bl_irreps(L=lmax),
+            inplace=True,
+            type="regular",
+            N=N,
+        )
+        layers.append(
+            enn.R2Conv(
+                layers[-1].out_type,
+                act.in_type,
                 kernel_size=5,
                 padding=0,
                 initialize=initialize

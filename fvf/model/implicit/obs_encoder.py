@@ -6,7 +6,7 @@ from escnn import nn as enn
 from escnn import group
 from escnn.gspaces.r2 import GSpace2D
 
-from fvf.model.modules.vision_encoder import ImageEncoder, CyclicImageEncoder, SO2ImageEncoder, ImageEncoder2
+from fvf.model.modules.vision_encoder import ImageEncoder, CyclicImageEncoder, SO2ImageEncoder, ImageEncoder2, SO2DroneImageEncoder
 from fvf.model.modules.fourier import Fourier
 from fvf.model.modules.equiv_layers import SO2MLP, SO3MLP
 from fvf.model.modules.layers import MLP
@@ -522,7 +522,7 @@ class SO2DroneObsEncoder(nn.Module):
         self.pos_dim = pos_dim
         self.use_keypoints = use_keypoints
         
-        self.image_encoder = SO2ImageEncoder(img_channels, z_dim, dropout, lmax=lmax, N=N, initialize=initialize)
+        self.image_encoder = SO2DroneImageEncoder(img_channels, z_dim, dropout, lmax=lmax, N=N, initialize=initialize)
         
         # Get actual output dimension from SO2ImageEncoder
         img_feat_dim = self.image_encoder.out_type.size
