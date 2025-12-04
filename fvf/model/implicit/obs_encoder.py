@@ -563,3 +563,101 @@ class SO2DroneObsEncoder(nn.Module):
         obs_feat = self.lin(img_feat_state)
         
         return obs_feat
+    
+class SO3DroneObsEncoder(nn.Module):
+    """
+    SO3 equivariant observation encoder for drone tasks.
+    
+    - Images: processed with standard ImageEncoder (outputs SO3-invariant scalars)
+    - Keypoints: processed with SO3 equivariant MLP (3D points as l=1 irreps)
+    - Fusion: concatenate and project to output
+    
+    Input format (obs dict):
+        - "image": (B, T, C, H, W) - RGB images
+        - "keypoints": (B, T, 3, 3) - 3D keypoints [current_pos, initial_pos, target_pos]
+    """
+    def __init__(
+        self,
+        num_obs: int,
+        img_channels: int = 3,
+        z_dim: int = 256,
+        dropout: float = 0.0,
+        num_keypoints: int = 3,
+        spec_norm: bool = False,
+        initialize: bool = True,
+        lmax: int = 3,
+        N: int = 16,
+    ):
+        super().__init__()
+        self.num_obs = num_obs
+        self.z_dim = z_dim
+        self.num_keypoints = num_keypoints
+        
+        # Image encoder - standard CNN (SO3-invariant output)
+        self.image_encoder = ImageEncoder(img_channels, z_dim, dropout)
+        self.img_norm = nn.LayerNorm(num_obs * z_dim)
+        
+        # SO3 group setup
+        self.G = group.so3_group(lmax)
+        self.gspace = gspaces.no_base_space(self.G)
+        
+        # Keypoint input type: each 3D point is a l=1 vector
+        # For each frame: 3 keypoints × 1 vector each = 3 l=1 irreps
+        # Total: num_obs × 3 l=1 irreps
+        keypoint_irreps = [self.gspace.irrep(1)] * num_keypoints
+        self.kp_in_type = enn.FieldType(self.gspace, num_obs * keypoint_irreps)
+        
+        # SO3 MLP for keypoints
+        self.keypoint_encoder = SO3MLP(
+            self.kp_in_type,
+            channels=[z_dim, z_dim],
+            lmaxs=[lmax, lmax],
+            N=N,
+            dropout=dropout,
+            act_out=True,
+            initialize=initialize,
+        )
+        kp_feat_dim = self.keypoint_encoder.out_type.size
+        
+        # Fusion MLP: image (invariant) + keypoint features -> z_dim output
+        self.fusion = MLP(
+            [num_obs * z_dim + kp_feat_dim, z_dim, z_dim],
+            dropout=dropout,
+            act_out=True,
+            spec_norm=spec_norm,
+        )
+    
+    def forward(self, obs: dict) -> torch.Tensor:
+        image = obs["image"]
+        
+        # Handle image format: (B, T, H, W, C) -> (B, T, C, H, W)
+        if image.shape[-1] == 3 and image.dim() == 5:
+            image = image.permute(0, 1, 4, 2, 3)
+        if image.dtype == torch.uint8:
+            image = image.float() / 255.0
+        
+        B, T, C, H, W = image.shape
+        
+        # Encode images: (B*T, C, H, W) -> (B, T*z_dim)
+        img_feat = self.image_encoder(image.view(B * T, C, H, W))
+        img_feat = img_feat.view(B, -1)
+        img_feat = self.img_norm(img_feat)
+        
+        # Get keypoints
+        keypoints = obs.get("keypoints", obs.get("keypoint"))
+        if keypoints is None:
+            raise KeyError(f"No keypoints found. Keys: {obs.keys()}")
+        
+        # Reshape: (B, T, 3, 3) -> (B, T*9)
+        # Each keypoint is a 3D vector (l=1 irrep)
+        kp = keypoints.view(B, -1)
+        
+        # Encode keypoints with SO3 MLP
+        kp_geom = self.kp_in_type(kp)
+        kp_feat = self.keypoint_encoder(kp_geom).tensor  # (B, kp_feat_dim)
+        
+        # Fuse image and keypoint features
+        fused = torch.cat([img_feat, kp_feat], dim=-1)
+        obs_feat = self.fusion(fused)
+        
+        return obs_feat

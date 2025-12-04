@@ -25,6 +25,7 @@ l_max: 3              # Max spherical harmonic degree
 n_k: 5                # Number of radial frequencies
 R_max: 1.0            # Max radius
 scale_factor: 10.0    # Energy scale factor
+# num_radii: 100
 
 action_coords: "spherical"
 
@@ -62,6 +63,7 @@ energy_head:
   n_k: ${n_k}
   R_max: ${R_max}
   num_theta: 20
+  # num_radii: ${num_radii}
   scale_factor: ${scale_factor}
 
 dataloader:

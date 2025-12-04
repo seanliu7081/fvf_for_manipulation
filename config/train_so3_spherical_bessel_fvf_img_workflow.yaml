@@ -2,30 +2,28 @@ defaults:
   - _self_
   - task: drone_go_to_image
 
-name: train_spherical_bessel_fvf_img_policy
+name: train_so3_spherical_bessel_fvf_img_policy
 _target_: fvf.workflow.implicit_workflow.ImplicitWorkflow
 
 obs_dim: ${task.obs_dim} 
 action_dim: ${task.action_dim}
 keypoint_dim: ${task.keypoint_dim}
 task_name: ${task.name}
-exp_name: 'default'
+exp_name: 'so3_img'
 
-# Spherical Bessel parameters
 horizon: 2
 num_obs_steps: 2
 num_action_steps: 1
 num_latency_steps: 0
 past_action_visible: False
 keypoint_visible_rate: 1.0
-z_dim: 256
 
+z_dim: 256
 n_max: 1
 lmax: 3
 n_k: 5
 R_max: 1.0
 scale_factor: 10.0
-
 action_coords: "spherical"
 crop_image_size: 84
 N: 16
@@ -44,24 +42,21 @@ policy:
   grad_pen: False
 
 obs_encoder:
-  # _target_: fvf.model.implicit.obs_encoder.DroneObsEncoder
-  _target_: fvf.model.implicit.obs_encoder.SO2DroneObsEncoder
+  _target_: fvf.model.implicit.obs_encoder.SO3DroneObsEncoder
   num_obs: ${num_obs_steps}
   img_channels: 3
   z_dim: ${z_dim}
+  dropout: 0.1
+  num_keypoints: 3
   lmax: ${lmax}
   N: ${N}
-  dropout: 0.1
 
 energy_head:
-  # _target_: fvf.model.implicit.energy_mlp.SphericalBesselEnergyMLP
-  _target_: fvf.model.implicit.energy_mlp.SO3SphericalBesselEnergyMLP
-  obs_feat_dim: 256
+  _target_: fvf.model.implicit.energy_mlp.SphericalBesselEnergyMLP
+  obs_feat_dim: ${z_dim}
   mlp_dim: ${z_dim}
   num_layers: 4
   dropout: 0.1
-  lmax: ${lmax}
-  N: ${N} 
   spec_norm: False
   n_max: 1
   l_max: ${lmax}
@@ -71,14 +66,14 @@ energy_head:
   scale_factor: 10.0
 
 dataloader:
-  batch_size: 128
+  batch_size: 64
   num_workers: 1
   shuffle: True
   pin_memory: True
   persistent_workers: False
 
 val_dataloader:
-  batch_size: 128
+  batch_size: 64
   num_workers: 1
   shuffle: False
   pin_memory: True
@@ -86,7 +81,7 @@ val_dataloader:
 
 optimizer:
   _target_: torch.optim.AdamW
-  lr: 1e-4
+  lr: 3e-4
   betas: [0.95, 0.999]
   eps: 1e-8
   weight_decay: 1e-6
@@ -96,7 +91,7 @@ training:
   seed: 0
   resume: True
   lr_warmup_steps: 500
-  num_epochs: 400
+  num_epochs: 200
   checkpoint_every: 10
   rollout_every: 10
   val_every: 1

@@ -1,10 +1,12 @@
 defaults:
   - _self_
-  - task: pusht_image
+  # - task: pusht_image
+  - task: drone_go_to_image
 
 name: train_implicit_image_policy
 _target_: fvf.workflow.implicit_workflow.ImplicitWorkflow
 
+crop_image_size: 84
 obs_dim: ${task.image_dim}
 action_dim: ${task.action_dim}
 keypoint_dim: ${task.keypoint_dim}
@@ -16,6 +18,7 @@ num_obs_steps: 2
 num_action_steps: 1
 num_latency_steps: 0
 past_action_visible: False
+keypoint_visible_rate: 1.0 
 z_dim: 256
 action_coords: "rectangular"
 
@@ -35,7 +38,7 @@ policy:
   grad_pen: False
 
 obs_encoder:
-  _target_: fvf.model.implicit.obs_encoder.ObsEncoder
+  _target_: fvf.model.implicit.obs_encoder.DroneObsEncoder
   num_obs: ${num_obs_steps}
   img_channels: 3
   z_dim: ${z_dim}
@@ -43,7 +46,7 @@ obs_encoder:
 
 energy_head:
   _target_: fvf.model.implicit.energy_mlp.EnergyMLP
-  obs_feat: ${z_dim}
+  obs_feat_dim: ${z_dim}
   action_dim: ${action_dim}
   mlp_dim: 256 
   dropout: 0.1

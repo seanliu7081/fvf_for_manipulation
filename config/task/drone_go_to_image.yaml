@@ -5,11 +5,12 @@ obs_dim: 9          # keypoint flattened: 3 points × 3D = 9
 action_dim: 3       # 3D action (delta position)
 keypoint_dim: 2     # same as lowdim version
 num_keypoints: 3    # current, initial, target
+# image_dim: 3
 
 # Dataset
 dataset:
   _target_: fvf.dataset.drone_image_dataset.DroneImageDataset
-  path: /media/lht/T7TwoTB/code/fourier_value_functions/task_data/drone_goto_image
+  path: task_data/drone_goto_image
   horizon: ${horizon}
   pad_before: ${eval:'${num_obs_steps}-1+${num_latency_steps}'}
   pad_after: ${eval:'${num_action_steps}-1'}
@@ -38,5 +39,5 @@ env_runner:
   past_action: ${past_action_visible}
   num_envs: 60
   action_coords: ${action_coords}
-  render_size: 96
+  render_size: 84
   crop_size: ${crop_image_size}

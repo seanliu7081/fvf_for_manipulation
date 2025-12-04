@@ -25,6 +25,7 @@ lmax: 3
 n_k: 5
 R_max: 1.0
 scale_factor: 10.0
+N: 16
 
 action_coords: "spherical"
 crop_image_size: 84
@@ -50,8 +51,8 @@ obs_encoder:
   dropout: 0.1
   pos_dim: 3
   use_keypoints: True
-  lmax: ${lmax}
-  N: ${N}
+  # lmax: ${lmax}
+  # N: ${N}
 
 energy_head:
   _target_: fvf.model.implicit.energy_mlp.SphericalBesselEnergyMLP

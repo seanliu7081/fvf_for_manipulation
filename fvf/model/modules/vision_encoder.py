@@ -247,20 +247,20 @@ class SO2DroneImageEncoder(nn.Module):
         )
 
         layers = list()
-        # 96x96
+        # 84x84
         layers.append(SO2ResNetBlock(self.in_type, z_dim // 8, lmax=lmax, N=N, initialize=initialize))
         layers.append(enn.NormMaxPool(layers[-1].out_type, 2))
-        # 48x48
+        # 42x42
         layers.append(SO2ResNetBlock(layers[-1].out_type, z_dim // 4, lmax=lmax, N=N, initialize=initialize))
         layers.append(enn.NormMaxPool(layers[-1].out_type, 2))
-        # 24x24
+        # 21x21
         layers.append(SO2ResNetBlock(layers[-1].out_type, z_dim // 2, lmax=lmax, N=N, initialize=initialize))
         layers.append(enn.NormMaxPool(layers[-1].out_type, 2))
-        # 12x12
+        # 10x10
         layers.append(SO2ResNetBlock(layers[-1].out_type, z_dim, lmax=lmax, N=N, initialize=initialize))
         layers.append(enn.NormMaxPool(layers[-1].out_type, 2))
 
-        # 3x3
+        # 5x5
         act = enn.FourierELU(
             self.gspace,
             channels=z_dim,
@@ -280,7 +280,6 @@ class SO2DroneImageEncoder(nn.Module):
         )
         layers.append(act)
         # 1x1
-
         self.out_type = layers[-1].out_type
         self.conv = nn.Sequential(*layers)
 

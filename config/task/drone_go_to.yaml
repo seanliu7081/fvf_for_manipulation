@@ -26,7 +26,7 @@ env_runner:
 
 dataset:
   _target_: fvf.dataset.drone_dataset.DroneDataset
-  path: /media/lht/T7TwoTB/code/fourier_value_functions/task_data/drone_goto
+  path: task_data/drone_goto
   horizon: ${horizon}
   pad_before: ${eval:'${num_obs_steps}-1+${num_latency_steps}'}
   pad_after: ${eval:'${num_action_steps}-1'}
