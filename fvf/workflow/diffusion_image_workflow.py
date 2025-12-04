@@ -13,9 +13,9 @@ from omegaconf import OmegaConf
 import wandb
 import copy
 
-from fvf.dataset.pusht_image_dataset import PushTImageDataset
+from fvf.dataset.drone_image_diff_dataset import DroneImageDiffDataset
 from fvf.workflow.base_workflow import BaseWorkflow
-from fvf.env_runner.pusht_image_runner import PushTImageRunner
+from fvf.env_runner.drone_goto_image_runner import DroneImageRunner
 from fvf.policy.diffusion_unet_image_policy import DiffusionUnetImagePolicy
 from fvf.utils import torch_utils
 from fvf.utils.json_logger import JsonLogger
@@ -65,9 +65,15 @@ class DiffusionImageWorkflow(BaseWorkflow):
                 self.load_checkpoint(path=lastest_ckpt_path)
 
         # configure dataset
-        dataset: PushTImageDataset
+        # dataset: PushTImageDataset
+        # dataset = hydra.utils.instantiate(self.config.task.dataset)
+        # assert isinstance(dataset, PushTImageDataset)
+        # train_dataloader = DataLoader(dataset, **self.config.dataloader)
+        # normalizer = dataset.get_normalizer()
+
+        dataset: DroneImageDiffDataset
         dataset = hydra.utils.instantiate(self.config.task.dataset)
-        assert isinstance(dataset, PushTImageDataset)
+        assert isinstance(dataset, DroneImageDiffDataset)
         train_dataloader = DataLoader(dataset, **self.config.dataloader)
         normalizer = dataset.get_normalizer()
 
@@ -103,7 +109,7 @@ class DiffusionImageWorkflow(BaseWorkflow):
             ema = hydra.utils.instantiate(self.config.ema, model=self.ema_model)
 
         # configure env
-        env_runner: PushTImageRunner
+        env_runner: DroneImageRunner
         env_runner = hydra.utils.instantiate(
             self.config.task.env_runner, output_dir=self.output_dir
         )
