@@ -5,7 +5,6 @@ obs_dim: 9          # keypoint flattened: 3 points × 3D = 9
 action_dim: 3       # 3D action (delta position)
 keypoint_dim: 2     # same as lowdim version
 num_keypoints: 3    # current, initial, target
-# image_dim: 3
 
 # Dataset
 dataset:
