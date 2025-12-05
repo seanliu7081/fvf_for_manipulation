@@ -189,7 +189,7 @@ def main(output, num_episodes, image_width, image_height, third_person, both_vie
             drone_pos = obs[:3]
             initial_pos = obs[3:6]
             target_pos = obs[6:9]
-            action = np.clip(target_pos - drone_pos, -0.1, 0.1)
+            action = np.clip(target_pos - drone_pos, -0.5, 0.5)
             
             keypoints = np.stack([drone_pos, initial_pos, target_pos], axis=0)
             

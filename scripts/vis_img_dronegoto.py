@@ -23,20 +23,20 @@ def visualize_episode(replay_buffer, episode_idx, save_path=None):
     episode = replay_buffer.get_episode(episode_idx)
     
     img = episode["img"]           # (T, H, W, 3)
-    keypoint = episode["keypoint"] # (T, 3, 3) - [current, initial, target]
+    keypoints = episode["keypoints"] # (T, 3, 3) - [current, initial, target]
     action = episode["action"]     # (T, 3)
     state = episode["state"]       # (T, 9)
     
     T = len(img)
     print(f"\nEpisode {episode_idx}: {T} timesteps")
     print(f"  img shape: {img.shape}")
-    print(f"  keypoint shape: {keypoint.shape}")
+    print(f"  keypoints shape: {keypoints.shape}")
     print(f"  action shape: {action.shape}")
     
     # 提取轨迹
-    current_pos = keypoint[:, 0, :]   # (T, 3) - 无人机位置
-    initial_pos = keypoint[0, 1, :]   # (3,) - 初始位置（固定）
-    target_pos = keypoint[0, 2, :]    # (3,) - 目标位置（固定）
+    current_pos = keypoints[:, 0, :]   # (T, 3) - 无人机位置
+    initial_pos = keypoints[0, 1, :]   # (3,) - 初始位置（固定）
+    target_pos = keypoints[0, 2, :]    # (3,) - 目标位置（固定）
     
     print(f"  Initial pos: {initial_pos.round(3)}")
     print(f"  Target pos: {target_pos.round(3)}")
@@ -123,7 +123,7 @@ Final: {current_pos[-1].round(3)}
 
 Final dist: {distances[-1]:.4f}
 Min dist: {distances.min():.4f}
-Success: {distances[-1] < 0.1}
+Success: {distances[-1] < 0.15}
 """
     ax_info.text(0.1, 0.9, info_text, transform=ax_info.transAxes,
                  fontsize=10, verticalalignment='top', fontfamily='monospace',
@@ -154,10 +154,10 @@ def create_video(replay_buffer, episode_idx, output_path):
     
     episode = replay_buffer.get_episode(episode_idx)
     img = episode["img"]  # (T, H, W, 3)
-    keypoint = episode["keypoint"]
+    keypoints = episode["keypoints"]
     
-    current_pos = keypoint[:, 0, :]
-    target_pos = keypoint[0, 2, :]
+    current_pos = keypoints[:, 0, :]
+    target_pos = keypoints[0, 2, :]
     
     frames = []
     print(f"Creating video with {len(img)} frames...")

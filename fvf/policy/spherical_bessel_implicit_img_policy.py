@@ -16,7 +16,7 @@ from fvf.utils import torch_utils
 from fvf.policy.base_policy import BasePolicy
 
 
-class SphericalBesselImplicitPolicy(BasePolicy):
+class SphericalBesselImgImplicitPolicy(BasePolicy):
     """
     Spherical Bessel implicit policy.
     """

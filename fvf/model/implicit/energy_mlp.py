@@ -975,125 +975,130 @@ class SphericalBesselEnergyMLP(nn.Module):
             return energy, coeffs
         return energy
 
-# class SphericalBesselEnergyMLP(nn.Module):
-#     """
-#     Energy MLP using Spherical Bessel Harmonics.
-#     支持两种模式：
-#     - 训练时 (actions.size(2)==3): EXACT 模式
-#     - 推理时 (actions.size(2)==1): Grid 模式
-#     """
+
+class SphericalBesselRdEnergyMLP(nn.Module):
+    """
+    Energy MLP using Spherical Bessel Harmonics with EXACT computation - RD version.
     
-#     def __init__(
-#         self,
-#         obs_feat_dim: int,
-#         mlp_dim: int,
-#         num_layers: int,
-#         dropout: float,
-#         spec_norm: bool,
-#         n_max: int = 1,
-#         l_max: int = 3,
-#         n_k: int = 5,
-#         R_max: float = 1.0,
-#         num_theta: int = 20,
-#         num_radii: int = 100,  # 新增：与 SphereEnergyMLP 兼容
-#         scale_factor: float = 10.0,
-#         initialize: bool = True,
-#     ):
-#         super().__init__()
-        
-#         self.n_max = n_max
-#         self.l_max = l_max
-#         self.n_k = n_k
-#         self.num_radii = num_radii  # 存储以便 get_action 使用
-#         self.R_max = R_max
-        
-#         # Spherical Bessel Harmonics
-#         self.sbh = SphericalBesselHarmonics(
-#             n_max=n_max,
-#             l_max=l_max,
-#             n_k=n_k,
-#             R_max=R_max,
-#             num_theta=num_theta,
-#             grid_type="lie_learn",
-#             scale_factor=scale_factor,
-#         )
-        
-#         # Alias for compatibility with SphereImplicitPolicy
-#         self.sh = self.sbh
-        
-#         # MLP: obs_feat -> basis coefficients
-#         self.energy_mlp = MLP(
-#             [obs_feat_dim] + [mlp_dim] * num_layers + [self.sbh.num_basis],
-#             dropout=dropout,
-#             act_out=False,
-#             spec_norm=spec_norm,
-#         )
-        
-#         print(f"SphericalBesselEnergyMLP:")
-#         print(f"  MLP: {obs_feat_dim} -> {self.sbh.num_basis} coefficients")
-#         print(f"  num_radii: {num_radii}")
-#         print(f"  Supports both EXACT (training) and Grid (inference) modes")
+    Input: Cartesian coordinates (x, y, z)
+    Internal conversion to Spherical coordinates (r, θ, φ)
+    """
     
-#     def forward(
-#         self,
-#         obs_feat: torch.Tensor,
-#         actions: torch.Tensor,
-#         return_coeffs: bool = False,
-#     ):
-#         """
-#         Compute energy.
+    def __init__(
+        self,
+        obs_feat_dim: int,
+        mlp_dim: int,
+        num_layers: int,
+        dropout: float,
+        spec_norm: bool,
+        n_max: int = 1,
+        l_max: int = 3,
+        n_k: int = 5,
+        R_max: float = 1.0,
+        num_theta: int = 20,
+        scale_factor: float = 10.0,
+        initialize: bool = True,
+    ):
+        super().__init__()
         
-#         Args:
-#             obs_feat: [B, obs_feat_dim]
-#             actions: 
-#                 - 训练时: [B, N, 3] - (r, θ, φ) → EXACT 模式
-#                 - 推理时: [B, num_radii, 1] - (r,) → Grid 模式
-#         Returns:
-#             - 训练时: energy [B, N]
-#             - 推理时: energy [B, num_radii, num_theta, num_phi]
-#         """
-#         B = obs_feat.shape[0]
+        self.n_max = n_max
+        self.l_max = l_max
+        self.n_k = n_k
+        self.num_radii = n_k
+        self.R_max = R_max
+        self.scale_factor = scale_factor
         
-#         # Get coefficients from MLP
-#         coeffs = self.energy_mlp(obs_feat)  # [B, num_basis]
+        # Spherical Bessel Harmonics (EXACT version)
+        self.sbh = SphericalBesselHarmonics(
+            n_max=n_max,
+            l_max=l_max,
+            n_k=n_k,
+            R_max=R_max,
+            num_theta=num_theta,
+            grid_type="lie_learn",
+            scale_factor=scale_factor,
+        )
         
-#         # =====================================================================
-#         # 根据 actions 的形状选择模式
-#         # =====================================================================
+        self.sh = self.sbh  # Alias
         
-#         if actions.dim() == 2:
-#             actions = actions.unsqueeze(1)  # [B, 3] -> [B, 1, 3]
+        # MLP: obs_feat -> basis coefficients
+        self.energy_mlp = MLP(
+            [obs_feat_dim] + [mlp_dim] * num_layers + [self.sbh.num_basis],
+            dropout=dropout,
+            act_out=False,
+            spec_norm=spec_norm,
+        )
         
-#         if actions.size(-1) == 3:
-#             # =================================================================
-#             # EXACT 模式 (训练时)
-#             # =================================================================
-#             B, N, D = actions.shape
+        print(f"  MLP: {obs_feat_dim} -> {self.sbh.num_basis} coefficients")
+    
+    def cartesian_to_spherical(self, xyz):
+        """
+        Convert Cartesian coordinates to spherical coordinates.
+        
+        Args:
+            xyz: [..., 3] - (x, y, z)
             
-#             # Expand coeffs for all actions
-#             coeffs_expanded = coeffs.unsqueeze(1).expand(-1, N, -1)  # [B, N, num_basis]
-#             coeffs_flat = coeffs_expanded.reshape(B * N, -1)  # [B*N, num_basis]
-            
-#             # Flatten actions
-#             actions_flat = actions.reshape(B * N, 3)  # [B*N, 3]
-            
-#             # Compute energy (EXACT)
-#             energy_flat = self.sbh.forward_exact(coeffs_flat, actions_flat)  # [B*N]
-#             energy = energy_flat.view(B, N)  # [B, N]
-            
-#         else:
-#             # =================================================================
-#             # Grid
-#             # =================================================================
-#             # actions: [B, num_radii, 1] -> r values
-#             r = actions.squeeze(-1) if actions.dim() == 3 else actions  # [B, num_radii]
-            
-#             # Compute energy on grid
-#             energy = self.sbh.forward_grid(coeffs, r)  # [B, num_radii, num_theta, num_phi]
+        Returns:
+            rtp: [..., 3] - (r, theta, phi)
+        """
+        x = xyz[..., 0]
+        y = xyz[..., 1]
+        z = xyz[..., 2]
         
-#         if return_coeffs:
-#             return energy, coeffs
-#         return energy
+        r = torch.sqrt(x**2 + y**2 + z**2).clamp(min=1e-8)
+        theta = torch.acos(torch.clamp(z / r, -1.0, 1.0))  # [0, pi]
+        phi = torch.atan2(y, x)  # [-pi, pi]
+        
+        return torch.stack([r, theta, phi], dim=-1)
+    
+    def forward(
+        self,
+        obs_feat: torch.Tensor,
+        actions: torch.Tensor,
+        return_coeffs: bool = False,
+    ):
+        """
+        Compute energy.
+        
+        Args:
+            obs_feat: [B, obs_feat_dim]
+            actions: [B, N, 3] or [B, N, Ta, 3] - Cartesian coordinates (x, y, z)
+                     normalized or unnormalized, as long as the relative relationship is correct
+            
+        Returns:
+            energy: [B, N]
+        """
+        B = obs_feat.shape[0]
+        
+        # Handle different input shapes
+        if actions.dim() == 4:
+            actions = actions.squeeze(2)  # [B, N, Ta, 3] -> [B, N, 3]
+        if actions.dim() == 2:
+            actions = actions.unsqueeze(1)  # [B, 3] -> [B, 1, 3]
+        
+        B, N, D = actions.shape
+        
+        # Convert Cartesian to Spherical
+        actions_spherical = self.cartesian_to_spherical(actions)  # [B, N, 3]
+        
+        # Get coefficients
+        coeffs = self.energy_mlp(obs_feat)  # [B, num_basis]
+        
+        # Expand for all actions
+        coeffs_expanded = coeffs.unsqueeze(1).expand(-1, N, -1)  # [B, N, num_basis]
+        coeffs_flat = coeffs_expanded.reshape(B * N, -1)  # [B*N, num_basis]
+        
+        # Flatten actions
+        actions_flat = actions_spherical.reshape(B * N, 3)  # [B*N, 3] - now in spherical
+        
+        # Compute energy (EXACT)
+        energy_flat = self.sbh(coeffs_flat, actions_flat)  # [B*N]
+        energy = energy_flat.view(B, N)  # [B, N]
+        
+        if return_coeffs:
+            return energy, coeffs
+        
+        return energy
 
 class SO3SphericalBesselEnergyMLP(nn.Module):
     """

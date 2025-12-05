@@ -502,6 +502,136 @@ class DroneObsEncoder(nn.Module):
         
         return obs_feat
 
+class DroneObsRdEncoder(nn.Module):
+    """
+    Observation encoder for drone tasks with image observations.
+    
+    Input format (obs dict):
+        - "image": (B, T, C, H, W) or (B, T, H, W, C) - RGB images
+        - "keypoint": (B, T, 3, 3) - 3D keypoints [current_pos, initial_pos, target_pos]
+    """
+    def __init__(
+        self,
+        num_obs: int,
+        img_channels: int = 3,
+        z_dim: int = 256,
+        dropout: float = 0.0,
+        pos_dim: int = 3,
+        use_keypoints: bool = True,
+        use_relative_pos: bool = True,  # 新增
+        spec_norm: bool = False,
+        initialize: bool = True,
+    ):
+        """
+        Args:
+            num_obs: number of observation frames (temporal window)
+            img_channels: number of image channels (3 for RGB)
+            z_dim: latent dimension
+            dropout: dropout rate
+            pos_dim: dimension of position (3 for 3D drone, 2 for 2D PushT)
+            use_keypoints: if True, use full keypoint (9 dim), else use agent_pos (3 dim)
+            use_relative_pos: if True, add relative position (target - current) in spherical coords
+        """
+        super().__init__()
+        self.num_obs = num_obs
+        self.z_dim = z_dim
+        self.pos_dim = pos_dim
+        self.use_keypoints = use_keypoints
+        self.use_relative_pos = use_relative_pos
+        
+        self.image_encoder = ImageEncoder(img_channels, z_dim, dropout)
+        self.img_norm = nn.LayerNorm(num_obs * z_dim)
+        
+        if use_keypoints:
+            state_dim = num_obs * 9
+        else:
+            state_dim = num_obs * pos_dim
+        
+        # 如果使用相对位置，增加 3 维 (r, theta, phi) per timestep
+        if use_relative_pos:
+            state_dim += num_obs * 3
+        
+        self.lin = MLP(
+            [num_obs * z_dim + state_dim, z_dim],
+            dropout=dropout,
+            act_out=True,
+            spec_norm=spec_norm,
+        )
+    
+    def cartesian_to_spherical(self, xyz):
+        """
+        Convert Cartesian coordinates to spherical coordinates.
+        Input: xyz [..., 3] - (x, y, z)
+        Output: rtp [..., 3] - (r, theta, phi)
+        """
+        x = xyz[..., 0]
+        y = xyz[..., 1]
+        z = xyz[..., 2]
+        
+        r = torch.sqrt(x**2 + y**2 + z**2).clamp(min=1e-8)
+        theta = torch.acos(torch.clamp(z / r, -1.0, 1.0))  # [0, pi]
+        phi = torch.atan2(y, x)  # [-pi, pi]
+        
+        return torch.stack([r, theta, phi], dim=-1)
+    
+    def forward(self, obs: dict) -> torch.Tensor:
+        """
+        Args:
+            obs: dict with keys:
+                - "image": (B, T, C, H, W) - RGB images
+                - "keypoints": (B, T, 3, 3) or (B, T, 9) - keypoints
+        
+        Returns:
+            obs_feat: (B, z_dim) - encoded observation features
+        """
+        image = obs["image"]
+        
+        # (B, T, H, W, C) -> (B, T, C, H, W)
+        if image.shape[-1] == 3 and image.dim() == 5:
+            image = image.permute(0, 1, 4, 2, 3)
+
+        if image.dtype == torch.uint8:
+            image = image.float() / 255.0
+        
+        B, T, C, H, W = image.shape
+        
+        # Encode images: (B*T, C, H, W) -> (B*T, z_dim)
+        img_feat = self.image_encoder(image.view(B * T, C, H, W))
+        img_feat = img_feat.view(B, -1)  # (B, T * z_dim)
+        img_feat = self.img_norm(img_feat)
+
+        # Get keypoints
+        keypoints = obs.get("keypoints", obs.get("keypoint"))
+        if keypoints is None:
+            raise KeyError(f"No keypoints found. Keys: {obs.keys()}")
+        
+        # Reshape keypoints if needed: (B, T, 9) -> (B, T, 3, 3)
+        if keypoints.dim() == 3 and keypoints.shape[-1] == 9:
+            keypoints = keypoints.view(B, T, 3, 3)
+        
+        state = keypoints.view(B, -1)  # (B, T * 9)
+        
+        # 计算相对位置 (target - current) 并转成 spherical
+        if self.use_relative_pos:
+            # keypoints: (B, T, 3, 3) where dim 2 is [current, initial, target]
+            current_pos = keypoints[:, :, 0, :]  # (B, T, 3)
+            target_pos = keypoints[:, :, 2, :]   # (B, T, 3)
+            
+            # 相对位置向量：从当前位置指向目标
+            relative_pos = target_pos - current_pos  # (B, T, 3)
+            
+            # 转换成 spherical coordinates
+            relative_spherical = self.cartesian_to_spherical(relative_pos)  # (B, T, 3)
+            
+            # Flatten 并拼接
+            relative_feat = relative_spherical.view(B, -1)  # (B, T * 3)
+            state = torch.cat([state, relative_feat], dim=-1)  # (B, T * 9 + T * 3)
+
+        img_feat_state = torch.cat([img_feat, state], dim=-1)
+        obs_feat = self.lin(img_feat_state)
+        
+        return obs_feat
+
 class SO2DroneObsEncoder(nn.Module):
     def __init__(
         self,
